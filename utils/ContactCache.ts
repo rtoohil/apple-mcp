@@ -3,8 +3,15 @@
  * Prevents repeated loading of all contacts, improving performance significantly
  */
 
+export interface ContactInfo {
+    name: string;
+    phones: string[];
+    emails: string[];
+    addresses: string[];
+}
+
 export interface ContactsData {
-    [contactName: string]: string[];
+    [contactName: string]: ContactInfo;
 }
 
 export interface CacheEntry {
@@ -260,13 +267,16 @@ export class ContactCache {
         let totalSize = 0;
         
         for (const entry of this.cache.values()) {
-            // Rough estimation: each contact name + phone numbers
-            for (const [name, phones] of Object.entries(entry.data)) {
+            // Rough estimation: each contact name + phone numbers + emails + addresses
+            for (const [name, contactInfo] of Object.entries(entry.data)) {
                 totalSize += name.length * 2; // UTF-16 characters
-                totalSize += phones.reduce((sum, phone) => sum + phone.length * 2, 0);
+                totalSize += contactInfo.name.length * 2;
+                totalSize += contactInfo.phones.reduce((sum, phone) => sum + phone.length * 2, 0);
+                totalSize += contactInfo.emails.reduce((sum, email) => sum + email.length * 2, 0);
+                totalSize += contactInfo.addresses.reduce((sum, addr) => sum + addr.length * 2, 0);
             }
             // Add overhead for objects and arrays
-            totalSize += 200; // Rough overhead per entry
+            totalSize += 300; // Rough overhead per entry (increased for more fields)
         }
         
         return totalSize / (1024 * 1024); // Convert to MB
@@ -277,9 +287,12 @@ export class ContactCache {
         
         // Estimate size of new data
         let newDataSize = 0;
-        for (const [name, phones] of Object.entries(newData)) {
+        for (const [name, contactInfo] of Object.entries(newData)) {
             newDataSize += name.length * 2;
-            newDataSize += phones.reduce((sum, phone) => sum + phone.length * 2, 0);
+            newDataSize += contactInfo.name.length * 2;
+            newDataSize += contactInfo.phones.reduce((sum, phone) => sum + phone.length * 2, 0);
+            newDataSize += contactInfo.emails.reduce((sum, email) => sum + email.length * 2, 0);
+            newDataSize += contactInfo.addresses.reduce((sum, addr) => sum + addr.length * 2, 0);
         }
         newDataSize = newDataSize / (1024 * 1024);
 

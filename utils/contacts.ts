@@ -1,13 +1,23 @@
 import { run } from '@jxa/run';
 import { runAppleScript } from 'run-applescript';
-import { validateContactName, validatePhoneNumber, escapeForLogging } from './ValidationUtils';
+import { validateContactName, validatePhoneNumber, validateEmail, escapeForLogging } from './ValidationUtils';
 import { getContactCache } from './ContactCache';
-import type { ContactsData } from './ContactCache';
+import type { ContactsData, ContactInfo } from './ContactCache';
 
-// Type for phone search result from JXA
-interface PhoneSearchResult {
+// Type for search results from JXA
+interface ContactSearchResult {
     name: string;
     phones: string[];
+    emails: string[];
+    addresses: string[];
+}
+
+// Fuzzy search scoring interface
+interface FuzzySearchResult {
+    contact: ContactInfo;
+    score: number;
+    matchType: 'name' | 'email' | 'phone';
+    matchValue: string;
 }
 
 async function checkContactsAccess(): Promise<boolean> {
@@ -26,63 +36,110 @@ end tell`);
     }
 }
 
-async function getAllNumbersAppleScript() {
+async function getAllContactsAppleScript(): Promise<ContactsData> {
     try {
-        console.error("Trying AppleScript fallback for getAllNumbers...");
+        console.error("Trying AppleScript fallback for getAllContacts...");
         const script = `
 tell application "Contacts"
     set contactsList to ""
     repeat with aPerson in every person
         try
             set personName to name of aPerson
+            set contactData to personName & "||"
+            
+            -- Get phone numbers
             set phoneList to phones of aPerson
-            if (count of phoneList) > 0 then
-                repeat with aPhone in phoneList
-                    set phoneValue to value of aPhone
-                    set contactsList to contactsList & personName & "|" & phoneValue & "\\n"
-                end repeat
-            end if
+            set phoneValues to ""
+            repeat with aPhone in phoneList
+                set phoneValue to value of aPhone
+                set phoneValues to phoneValues & phoneValue & ","
+            end repeat
+            if phoneValues ends with "," then set phoneValues to text 1 thru -2 of phoneValues
+            set contactData to contactData & phoneValues & "||"
+            
+            -- Get email addresses
+            set emailList to emails of aPerson
+            set emailValues to ""
+            repeat with anEmail in emailList
+                set emailValue to value of anEmail
+                set emailValues to emailValues & emailValue & ","
+            end repeat
+            if emailValues ends with "," then set emailValues to text 1 thru -2 of emailValues
+            set contactData to contactData & emailValues & "||"
+            
+            -- Get addresses
+            set addressList to addresses of aPerson
+            set addressValues to ""
+            repeat with anAddress in addressList
+                try
+                    set addressValue to formatted address of anAddress
+                    set addressValue to my replaceText(addressValue, "\\n", " ")
+                    set addressValues to addressValues & addressValue & ","
+                on error
+                    -- Skip addresses that can't be formatted
+                end try
+            end repeat
+            if addressValues ends with "," then set addressValues to text 1 thru -2 of addressValues
+            set contactData to contactData & addressValues
+            
+            set contactsList to contactsList & contactData & "\\n"
         on error
             -- Skip contacts that can't be processed
         end try
     end repeat
     return contactsList
-end tell`;
+end tell
+
+on replaceText(sourceText, oldText, newText)
+    set AppleScript's text item delimiters to oldText
+    set textItems to text items of sourceText
+    set AppleScript's text item delimiters to newText
+    set resultText to textItems as string
+    set AppleScript's text item delimiters to ""
+    return resultText
+end replaceText`;
 
         const result = await runAppleScript(script);
         console.error("AppleScript result type:", typeof result);
         console.error("AppleScript result sample:", typeof result === 'string' ? result.substring(0, 200) + '...' : result);
         
         // Parse the AppleScript result into our expected format
-        const phoneNumbers: { [key: string]: string[] } = {};
+        const contacts: ContactsData = {};
         
         if (typeof result === 'string' && result.trim()) {
             const lines = result.trim().split('\n').filter(line => line.trim());
             
             for (const line of lines) {
-                if (line.includes('|')) {
-                    const [name, phone] = line.split('|').map(s => s.trim());
-                    if (name && phone) {
-                        if (!phoneNumbers[name]) {
-                            phoneNumbers[name] = [];
-                        }
-                        phoneNumbers[name].push(phone);
+                const parts = line.split('||');
+                if (parts.length >= 4) {
+                    const [name, phoneStr, emailStr, addressStr] = parts;
+                    if (name && name.trim()) {
+                        const phones = phoneStr ? phoneStr.split(',').map(p => p.trim()).filter(p => p) : [];
+                        const emails = emailStr ? emailStr.split(',').map(e => e.trim()).filter(e => e) : [];
+                        const addresses = addressStr ? addressStr.split(',').map(a => a.trim()).filter(a => a) : [];
+                        
+                        contacts[name.trim()] = {
+                            name: name.trim(),
+                            phones,
+                            emails,
+                            addresses
+                        };
                     }
                 }
             }
         }
         
-        console.error(`AppleScript parsed ${Object.keys(phoneNumbers).length} contacts with phone numbers.`);
-        return phoneNumbers;
+        console.error(`AppleScript parsed ${Object.keys(contacts).length} contacts.`);
+        return contacts;
     } catch (error) {
         console.error("AppleScript fallback failed:", error);
         throw error;
     }
 }
 
-async function getAllNumbers(): Promise<ContactsData> {
+async function getAllContacts(): Promise<ContactsData> {
     try {
-        console.error("Starting getAllNumbers...");
+        console.error("Starting getAllContacts...");
         
         // Check cache first
         const cache = getContactCache();
@@ -100,14 +157,14 @@ async function getAllNumbers(): Promise<ContactsData> {
         let contactsData: ContactsData = {};
         try {
             console.error("Running JXA script to get all contacts...");
-            const nums: { [key: string]: string[] } = await run(() => {
+            const contacts: ContactsData = await run(() => {
                 const Contacts = Application('Contacts');
                 console.log("Contacts app accessed successfully");
                 
                 const people = Contacts.people();
                 console.log(`Found ${people.length} people in contacts`);
                 
-                const phoneNumbers: { [key: string]: string[] } = {};
+                const contactsMap: { [key: string]: ContactInfo } = {};
 
                 for (let i = 0; i < people.length; i++) {
                     try {
@@ -115,35 +172,56 @@ async function getAllNumbers(): Promise<ContactsData> {
                         const name = person.name();
                         console.log(`Processing contact: ${name}`);
                         
-                        const phones = person.phones();
-                        console.log(`Found ${phones.length} phone numbers for ${name}`);
+                        if (!name) continue;
                         
-                        const phoneValues = phones.map((phone: any) => phone.value());
+                        // Get phone numbers
+                        const phones = person.phones();
+                        const phoneValues = phones.map((phone: any) => phone.value()).filter((v: string) => v);
+                        
+                        // Get email addresses
+                        const emails = person.emails();
+                        const emailValues = emails.map((email: any) => email.value()).filter((v: string) => v);
+                        
+                        // Get addresses
+                        const addresses = person.addresses();
+                        const addressValues = addresses.map((addr: any) => {
+                            try {
+                                const formatted = addr.formattedAddress();
+                                return formatted ? formatted.replace(/\n/g, ' ').trim() : '';
+                            } catch {
+                                return '';
+                            }
+                        }).filter((v: string) => v);
 
-                        if (name && phoneValues.length > 0) {
-                            phoneNumbers[name] = phoneValues;
-                        }
+                        contactsMap[name] = {
+                            name,
+                            phones: phoneValues,
+                            emails: emailValues,
+                            addresses: addressValues
+                        };
+                        
+                        console.log(`Added contact: ${name} with ${phoneValues.length} phones, ${emailValues.length} emails, ${addressValues.length} addresses`);
                     } catch (error) {
                         console.log(`Error processing contact ${i}:`, error);
                         // Skip contacts that can't be processed
                     }
                 }
 
-                console.log(`Processed ${Object.keys(phoneNumbers).length} contacts with phone numbers`);
-                return phoneNumbers;
+                console.log(`Processed ${Object.keys(contactsMap).length} contacts`);
+                return contactsMap;
             });
 
-            console.error(`JXA getAllNumbers completed. Found ${Object.keys(nums).length} contacts with phone numbers.`);
-            contactsData = nums;
+            console.error(`JXA getAllContacts completed. Found ${Object.keys(contacts).length} contacts.`);
+            contactsData = contacts;
             
             // If JXA returns empty results, try AppleScript fallback
-            if (Object.keys(nums).length === 0) {
+            if (Object.keys(contacts).length === 0) {
                 console.error("JXA returned empty results, trying AppleScript fallback...");
-                contactsData = await getAllNumbersAppleScript();
+                contactsData = await getAllContactsAppleScript();
             }
         } catch (jxaError) {
             console.error("JXA failed, trying AppleScript fallback:", jxaError);
-            contactsData = await getAllNumbersAppleScript();
+            contactsData = await getAllContactsAppleScript();
         }
 
         // Cache the results
@@ -154,71 +232,189 @@ async function getAllNumbers(): Promise<ContactsData> {
         
         return contactsData;
     } catch (error) {
-        console.error("Error in getAllNumbers:", error);
+        console.error("Error in getAllContacts:", error);
         throw new Error(`Error accessing contacts: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+// Backward compatibility function
+async function getAllNumbers(): Promise<ContactsData> {
+    return getAllContacts();
+}
+
+/**
+ * Calculate fuzzy search score for a string match
+ * @param searchTerm - The search term
+ * @param target - The target string to match against
+ * @returns Score between 0 and 1 (1 = perfect match)
+ */
+function calculateFuzzyScore(searchTerm: string, target: string): number {
+    const search = searchTerm.toLowerCase();
+    const text = target.toLowerCase();
+    
+    // Exact match
+    if (search === text) return 1.0;
+    
+    // Starts with search term
+    if (text.startsWith(search)) return 0.9;
+    
+    // Contains search term
+    if (text.includes(search)) return 0.7;
+    
+    // Word boundary match (search term matches start of a word)
+    const words = text.split(/\s+/);
+    for (const word of words) {
+        if (word.startsWith(search)) return 0.8;
+        if (word.includes(search)) return 0.6;
+    }
+    
+    // Fuzzy character matching (simplified Levenshtein distance approach)
+    let matches = 0;
+    let searchIndex = 0;
+    for (let i = 0; i < text.length && searchIndex < search.length; i++) {
+        if (text[i] === search[searchIndex]) {
+            matches++;
+            searchIndex++;
+        }
+    }
+    
+    if (matches === search.length) {
+        return 0.5 * (matches / text.length);
+    }
+    
+    return 0;
+}
+
+/**
+ * Perform fuzzy search across all contact fields
+ * @param searchTerm - The term to search for
+ * @param maxResults - Maximum number of results to return
+ * @returns Array of fuzzy search results sorted by score
+ */
+async function fuzzySearchContacts(searchTerm: string, maxResults: number = 10): Promise<FuzzySearchResult[]> {
+    try {
+        const sanitizedTerm = validateContactName(searchTerm);
+        console.error(`Starting fuzzy search for: ${escapeForLogging(sanitizedTerm)}`);
+        
+        const allContacts = await getAllContacts();
+        const results: FuzzySearchResult[] = [];
+        
+        for (const [contactName, contactInfo] of Object.entries(allContacts)) {
+            // Search by name
+            const nameScore = calculateFuzzyScore(sanitizedTerm, contactInfo.name);
+            if (nameScore > 0.3) {
+                results.push({
+                    contact: contactInfo,
+                    score: nameScore,
+                    matchType: 'name',
+                    matchValue: contactInfo.name
+                });
+            }
+            
+            // Search by email
+            for (const email of contactInfo.emails) {
+                const emailScore = calculateFuzzyScore(sanitizedTerm, email);
+                if (emailScore > 0.3) {
+                    results.push({
+                        contact: contactInfo,
+                        score: emailScore * 0.9, // Slightly lower weight for email matches
+                        matchType: 'email',
+                        matchValue: email
+                    });
+                }
+            }
+            
+            // Search by phone (less common but still useful)
+            for (const phone of contactInfo.phones) {
+                const phoneScore = calculateFuzzyScore(sanitizedTerm, phone);
+                if (phoneScore > 0.5) { // Higher threshold for phone matches
+                    results.push({
+                        contact: contactInfo,
+                        score: phoneScore * 0.8,
+                        matchType: 'phone',
+                        matchValue: phone
+                    });
+                }
+            }
+        }
+        
+        // Sort by score descending and remove duplicates (keep highest scoring match per contact)
+        const uniqueResults = new Map<string, FuzzySearchResult>();
+        for (const result of results) {
+            const existing = uniqueResults.get(result.contact.name);
+            if (!existing || result.score > existing.score) {
+                uniqueResults.set(result.contact.name, result);
+            }
+        }
+        
+        const sortedResults = Array.from(uniqueResults.values())
+            .sort((a, b) => b.score - a.score)
+            .slice(0, maxResults);
+        
+        console.error(`Fuzzy search found ${sortedResults.length} results`);
+        return sortedResults;
+    } catch (error) {
+        console.error("Error in fuzzy search:", error);
+        return [];
+    }
+}
+
+/**
+ * Search for contacts by name or email with fuzzy matching
+ * @param searchTerm - Name or email to search for
+ * @returns Array of matching contacts
+ */
+async function searchContacts(searchTerm: string): Promise<ContactInfo[]> {
+    try {
+        const results = await fuzzySearchContacts(searchTerm, 10);
+        return results.map(r => r.contact);
+    } catch (error) {
+        console.error("Error in searchContacts:", error);
+        throw new Error(`Error searching contacts: ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
+
+/**
+ * Search for a contact by email address with fuzzy matching
+ * @param email - Email address to search for
+ * @returns Array of matching contacts
+ */
+async function findContactByEmail(email: string): Promise<ContactInfo[]> {
+    try {
+        const sanitizedEmail = validateEmail(email);
+        console.error(`Starting email search for: ${escapeForLogging(sanitizedEmail)}`);
+        
+        const allContacts = await getAllContacts();
+        const results: ContactInfo[] = [];
+        
+        for (const contactInfo of Object.values(allContacts)) {
+            for (const contactEmail of contactInfo.emails) {
+                if (contactEmail.toLowerCase().includes(sanitizedEmail.toLowerCase())) {
+                    results.push(contactInfo);
+                    break; // Don't add the same contact multiple times
+                }
+            }
+        }
+        
+        console.error(`Email search found ${results.length} results`);
+        return results;
+    } catch (error) {
+        console.error("Error in findContactByEmail:", error);
+        throw new Error(`Error finding contact by email: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
 
 async function findNumber(name: string) {
     try {
-        // Validate and sanitize input
-        const sanitizedName = validateContactName(name);
-        console.error(`Starting findNumber for: ${escapeForLogging(sanitizedName)}`);
+        // Use the new fuzzy search to find contacts and return their phone numbers
+        const contacts = await searchContacts(name);
         
-        if (!await checkContactsAccess()) {
+        if (contacts.length === 0) {
             return [];
         }
-
-        // Use JXA exclusively to avoid string interpolation vulnerabilities
-        try {
-            console.error("Running secure JXA script to find specific contact...");
-            const phones: string[] = await run((searchName: string) => {
-                const Contacts = Application('Contacts');
-                const people = Contacts.people();
-                
-                console.log(`Searching for contacts matching: ${searchName}`);
-                
-                for (let i = 0; i < people.length; i++) {
-                    try {
-                        const person = people[i];
-                        const personName = person.name();
-                        
-                        // Use JavaScript string methods for safe comparison
-                        if (personName && personName.toLowerCase().includes(searchName.toLowerCase())) {
-                            console.log(`Found matching contact: ${personName}`);
-                            
-                            const phones = person.phones();
-                            const phoneValues = phones.map((phone: any) => phone.value());
-                            
-                            if (phoneValues.length > 0) {
-                                console.log(`Found ${phoneValues.length} phone numbers`);
-                                return phoneValues;
-                            }
-                        }
-                    } catch (error) {
-                        console.log(`Error processing contact ${i}:`, error);
-                        // Skip contacts that can't be processed
-                    }
-                }
-                
-                console.log("No matching contact found");
-                return [];
-            }, sanitizedName);
-
-            console.error(`JXA findNumber completed. Found ${phones.length} phone numbers.`);
-
-            // If no exact match found, try fuzzy search as fallback
-            if (phones.length === 0) {
-                console.error("No direct match found, trying fuzzy search...");
-                return await findNumberFuzzyFallback(sanitizedName);
-            }
-
-            return phones;
-        } catch (jxaError) {
-            console.error("JXA findNumber failed:", jxaError);
-            // Fallback to fuzzy search through cached data
-            return await findNumberFuzzyFallback(sanitizedName);
-        }
+        
+        // Return phone numbers from the best match
+        return contacts[0].phones;
     } catch (error) {
         console.error("Error in findNumber:", error);
         throw new Error(`Error finding contact: ${error instanceof Error ? error.message : String(error)}`);
@@ -226,36 +422,8 @@ async function findNumber(name: string) {
 }
 
 /**
- * Fallback fuzzy search using cached contact data
- * This avoids the performance hit of loading all contacts in the main path
+ * Updated phone search to work with new contact structure
  */
-async function findNumberFuzzyFallback(sanitizedName: string): Promise<string[]> {
-    try {
-        console.error("Running fuzzy search fallback...");
-        
-        // Try cache first for fuzzy search
-        const cache = getContactCache();
-        const cachedData = cache.get('allContacts');
-        
-        let allNumbers: ContactsData;
-        if (cachedData) {
-            console.error("Using cached data for fuzzy search");
-            allNumbers = cachedData;
-        } else {
-            console.error("No cached data, loading fresh data for fuzzy search");
-            allNumbers = await getAllNumbers();
-        }
-        
-        const closestMatch = Object.keys(allNumbers).find(personName => 
-            personName.toLowerCase().includes(sanitizedName.toLowerCase())
-        );
-        console.error(`Fuzzy search result: ${closestMatch || 'none'}`);
-        return closestMatch ? allNumbers[closestMatch] : [];
-    } catch (error) {
-        console.error("Fuzzy search fallback failed:", error);
-        return [];
-    }
-}
 
 /**
  * Normalize phone number for comparison by removing formatting characters
@@ -316,7 +484,7 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
         console.error("Cache miss, falling back to direct JXA search...");
         try {
             console.error("Running direct JXA phone search...");
-            const foundContact: PhoneSearchResult | null = await run((searchFormats: string[]) => {
+            const foundContact: ContactSearchResult | null = await run((searchFormats: string[]) => {
                 const Contacts = Application('Contacts');
                 const people = Contacts.people();
                 
@@ -342,9 +510,26 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
                                     const personName = person.name();
                                     console.log(`Found match: ${personName} has phone ${phoneValue}`);
                                     
-                                    // Return both the name and all phone numbers for caching
+                                    // Return comprehensive contact info
                                     const allPhones = phones.map((phone: any) => phone.value());
-                                    return { name: personName, phones: allPhones };
+                                    const emails = person.emails();
+                                    const allEmails = emails.map((email: any) => email.value());
+                                    const addresses = person.addresses();
+                                    const allAddresses = addresses.map((addr: any) => {
+                                        try {
+                                            const formatted = addr.formattedAddress();
+                                            return formatted ? formatted.replace(/\n/g, ' ').trim() : '';
+                                        } catch {
+                                            return '';
+                                        }
+                                    }).filter((a: string) => a);
+                                    
+                                    return { 
+                                        name: personName, 
+                                        phones: allPhones, 
+                                        emails: allEmails, 
+                                        addresses: allAddresses 
+                                    };
                                 }
                             }
                         }
@@ -362,7 +547,13 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
                 console.error(`Direct JXA search found: ${foundContact.name}`);
                 
                 // Cache the successful result for future lookups
-                await cachePhoneSearchResult(foundContact.name, foundContact.phones);
+                const contactInfo: ContactInfo = {
+                    name: foundContact.name,
+                    phones: foundContact.phones,
+                    emails: foundContact.emails,
+                    addresses: foundContact.addresses
+                };
+                await cacheContactSearchResult(contactInfo);
                 
                 return foundContact.name;
             }
@@ -397,8 +588,8 @@ async function findContactByPhoneCachedSearch(searchNumbers: string[]): Promise<
         console.error("Searching cached contacts...");
         
         // Look for a match in cached data
-        for (const [name, numbers] of Object.entries(allContacts)) {
-            const normalizedNumbers = numbers.map(num => num.replace(/[^0-9+]/g, ''));
+        for (const [name, contactInfo] of Object.entries(allContacts)) {
+            const normalizedNumbers = contactInfo.phones.map(num => num.replace(/[^0-9+]/g, ''));
             
             // Check if any cached phone numbers match our search numbers
             for (const searchNumber of searchNumbers) {
@@ -494,9 +685,9 @@ async function updateCacheConfig(config: any): Promise<void> {
 }
 
 /**
- * Cache the result of a successful phone search to improve future lookup performance
+ * Cache the result of a successful contact search to improve future lookup performance
  */
-async function cachePhoneSearchResult(contactName: string, phoneNumbers: string[]): Promise<void> {
+async function cacheContactSearchResult(contactInfo: ContactInfo): Promise<void> {
     try {
         const cache = getContactCache();
         let existingData = cache.get('allContacts');
@@ -507,22 +698,26 @@ async function cachePhoneSearchResult(contactName: string, phoneNumbers: string[
         }
         
         // Add or update this contact in the cache
-        existingData[contactName] = phoneNumbers;
+        existingData[contactInfo.name] = contactInfo;
         
         // Save back to cache
         cache.set(existingData, 'allContacts');
         
-        console.error(`📞 Cached phone search result: ${contactName} with ${phoneNumbers.length} phone numbers`);
+        console.error(`📞 Cached contact search result: ${contactInfo.name} with ${contactInfo.phones.length} phones, ${contactInfo.emails.length} emails, ${contactInfo.addresses.length} addresses`);
     } catch (error) {
-        console.error("Failed to cache phone search result:", error);
+        console.error("Failed to cache contact search result:", error);
         // Don't throw - caching failure shouldn't break the search
     }
 }
 
 export default { 
-    getAllNumbers, 
+    getAllNumbers,
+    getAllContacts,
     findNumber, 
-    findContactByPhone, 
+    findContactByPhone,
+    searchContacts,
+    findContactByEmail,
+    fuzzySearchContacts,
     testContactsAccess,
     getCacheInfo,
     invalidateCache,

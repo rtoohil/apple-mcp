@@ -63,6 +63,35 @@ export function validatePhoneNumber(phoneNumber: string): string {
 }
 
 /**
+ * Validates an email address input
+ * @param email - The email address to validate
+ * @returns Sanitized email address or throws error if invalid
+ */
+export function validateEmail(email: string): string {
+    if (typeof email !== 'string') {
+        throw new Error('Email address must be a string');
+    }
+    
+    const trimmed = email.trim();
+    
+    if (trimmed.length === 0) {
+        throw new Error('Email address cannot be empty');
+    }
+    
+    // Basic email format validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+        throw new Error('Email address format is invalid');
+    }
+    
+    // Check reasonable length
+    if (trimmed.length > 254) {
+        throw new Error('Email address is too long (maximum 254 characters)');
+    }
+    
+    return trimmed;
+}
+
+/**
  * Safely escapes a string for use in logging to prevent log injection
  * @param input - The string to escape for logging
  * @returns Escaped string safe for logging
