@@ -2,15 +2,37 @@ import { type Tool } from "@modelcontextprotocol/sdk/types.js";
 
 const CONTACTS_TOOL: Tool = {
     name: "contacts",
-    description: "Search and retrieve contacts from Apple Contacts app",
+    description: "Search and retrieve comprehensive contact information from Apple Contacts app with fuzzy search support",
     inputSchema: {
       type: "object",
       properties: {
-        name: {
+        operation: {
           type: "string",
-          description: "Name to search for (optional - if not provided, returns all contacts). Can be partial name to search."
+          description: "Operation to perform: 'search', 'list', 'email', or 'phone'",
+          enum: ["search", "list", "email", "phone"]
+        },
+        searchTerm: {
+          type: "string",
+          description: "Name or search term to find contacts (supports fuzzy matching for names and emails)"
+        },
+        email: {
+          type: "string",
+          description: "Email address to search for (required for email operation)"
+        },
+        phoneNumber: {
+          type: "string",
+          description: "Phone number to search for (required for phone operation)"
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum number of results to return (optional, default 10)"
+        },
+        includeScore: {
+          type: "boolean",
+          description: "Include fuzzy search scoring information in results (optional, default false)"
         }
-      }
+      },
+      required: ["operation"]
     }
   };
   

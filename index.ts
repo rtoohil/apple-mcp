@@ -222,57 +222,194 @@ function initServer() {
           try {
             const contactsModule = await loadModule('contacts');
             
-            if (args.name) {
-              const numbers = await contactsModule.findNumber(args.name);
-              return {
-                content: [{
-                  type: "text",
-                  text: numbers.length ? 
-                    `${args.name}: ${numbers.join(", ")}` :
-                    `No contact found for "${args.name}". Try a different name or use no name parameter to list all contacts.`
-                }],
-                isError: false
-              };
-            } else {
-              // First test access to provide better error messages
-              const testResult = await contactsModule.testContactsAccess();
-              
-              if (!testResult.success) {
+            // Legacy support for 'name' parameter (convert to search operation)
+            if (args.name && !args.operation) {
+              const contacts = await contactsModule.searchContacts(args.name);
+              if (contacts.length === 0) {
                 return {
                   content: [{
                     type: "text",
-                    text: `❌ ${testResult.message}\n\nTo fix this:\n1. Open System Preferences > Security & Privacy > Privacy > Contacts\n2. Make sure your terminal application or the app running this MCP server has permission\n3. Try running the contacts command again`
-                  }],
-                  isError: true
-                };
-              }
-              
-              const allNumbers = await contactsModule.getAllNumbers();
-              const contactCount = Object.keys(allNumbers).length;
-              
-              if (contactCount === 0) {
-                return {
-                  content: [{
-                    type: "text",
-                    text: `✅ Successfully connected to Contacts app (found ${testResult.contactCount || 0} total contacts).\n\n❌ However, no contacts with phone numbers were found.\n\nThis could mean:\n1. Your contacts don't have phone numbers saved\n2. There's an issue with the phone number extraction\n3. All contacts were skipped due to processing errors\n\nTry adding a phone number to a contact and test again.`
+                    text: `No contact found for "${args.name}". Try a different name or use the list operation to see all contacts.`
                   }],
                   isError: false
                 };
               }
-
-              const formattedContacts = Object.entries(allNumbers)
-                .filter(([_, phones]) => phones.length > 0)
-                .map(([name, phones]) => `${name}: ${phones.join(", ")}`);
-
+              
+              const contact = contacts[0];
               return {
                 content: [{
                   type: "text",
-                  text: formattedContacts.length > 0 ?
-                    `✅ Found ${contactCount} contacts with phone numbers:\n\n${formattedContacts.join("\n")}` :
-                    "Found contacts but none have phone numbers. Try searching by name to see more details."
+                  text: `**${contact.name}**\n📞 ${contact.phones.join(", ") || "No phone numbers"}\n📧 ${contact.emails.join(", ") || "No email addresses"}\n🏠 ${contact.addresses.join(", ") || "No addresses"}`
                 }],
                 isError: false
               };
+            }
+            
+            // New operation-based handling
+            const { operation } = args;
+            
+            switch (operation) {
+              case "search": {
+                const results = args.includeScore ? 
+                  await contactsModule.fuzzySearchContacts(args.searchTerm!, args.maxResults || 10) :
+                  await contactsModule.searchContacts(args.searchTerm!);
+                
+                if (results.length === 0) {
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `No contacts found matching "${args.searchTerm}". Try a different search term or use the list operation to see all contacts.`
+                    }],
+                    isError: false
+                  };
+                }
+                
+                let responseText;
+                if (args.includeScore) {
+                  responseText = `Found ${results.length} contacts matching "${args.searchTerm}":\n\n` +
+                    results.map((result: any) => 
+                      `**${result.contact.name}** (Score: ${(result.score * 100).toFixed(1)}%, Match: ${result.matchType} - ${result.matchValue})\n` +
+                      `📞 ${result.contact.phones.join(", ") || "No phone numbers"}\n` +
+                      `📧 ${result.contact.emails.join(", ") || "No email addresses"}\n` +
+                      `🏠 ${result.contact.addresses.join(", ") || "No addresses"}`
+                    ).join("\n\n");
+                } else {
+                  responseText = `Found ${results.length} contacts matching "${args.searchTerm}":\n\n` +
+                    results.map((contact: any) => 
+                      `**${contact.name}**\n` +
+                      `📞 ${contact.phones.join(", ") || "No phone numbers"}\n` +
+                      `📧 ${contact.emails.join(", ") || "No email addresses"}\n` +
+                      `🏠 ${contact.addresses.join(", ") || "No addresses"}`
+                    ).join("\n\n");
+                }
+                
+                return {
+                  content: [{
+                    type: "text",
+                    text: responseText
+                  }],
+                  isError: false
+                };
+              }
+              
+              case "email": {
+                const contacts = await contactsModule.findContactByEmail(args.email!);
+                
+                if (contacts.length === 0) {
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `No contacts found with email "${args.email}".`
+                    }],
+                    isError: false
+                  };
+                }
+                
+                const responseText = `Found ${contacts.length} contact(s) with email "${args.email}":\n\n` +
+                  contacts.slice(0, args.maxResults || 10).map((contact: any) => 
+                    `**${contact.name}**\n` +
+                    `📞 ${contact.phones.join(", ") || "No phone numbers"}\n` +
+                    `📧 ${contact.emails.join(", ")}\n` +
+                    `🏠 ${contact.addresses.join(", ") || "No addresses"}`
+                  ).join("\n\n");
+                
+                return {
+                  content: [{
+                    type: "text",
+                    text: responseText
+                  }],
+                  isError: false
+                };
+              }
+              
+              case "phone": {
+                const contactName = await contactsModule.findContactByPhone(args.phoneNumber!);
+                
+                if (!contactName) {
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `No contact found with phone number "${args.phoneNumber}".`
+                    }],
+                    isError: false
+                  };
+                }
+                
+                // Get full contact details
+                const contacts = await contactsModule.searchContacts(contactName);
+                if (contacts.length > 0) {
+                  const contact = contacts[0];
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `Found contact with phone number "${args.phoneNumber}":\n\n` +
+                        `**${contact.name}**\n` +
+                        `📞 ${contact.phones.join(", ")}\n` +
+                        `📧 ${contact.emails.join(", ") || "No email addresses"}\n` +
+                        `🏠 ${contact.addresses.join(", ") || "No addresses"}`
+                    }],
+                    isError: false
+                  };
+                }
+                
+                return {
+                  content: [{
+                    type: "text",
+                    text: `Found contact "${contactName}" but couldn't retrieve full details.`
+                  }],
+                  isError: false
+                };
+              }
+              
+              case "list": {
+                // First test access
+                const testResult = await contactsModule.testContactsAccess();
+                
+                if (!testResult.success) {
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `❌ ${testResult.message}\n\nTo fix this:\n1. Open System Preferences > Security & Privacy > Privacy > Contacts\n2. Make sure your terminal application or the app running this MCP server has permission\n3. Try running the contacts command again`
+                    }],
+                    isError: true
+                  };
+                }
+                
+                const allContacts = await contactsModule.getAllContacts();
+                const contactList = Object.values(allContacts);
+                
+                if (contactList.length === 0) {
+                  return {
+                    content: [{
+                      type: "text",
+                      text: `✅ Successfully connected to Contacts app but no contacts found.`
+                    }],
+                    isError: false
+                  };
+                }
+                
+                const maxResults = args.maxResults || 20;
+                const limitedContacts = contactList.slice(0, maxResults);
+                
+                const responseText = `✅ Found ${contactList.length} total contacts${contactList.length > maxResults ? ` (showing first ${maxResults})` : ''}:\n\n` +
+                  limitedContacts.map((contact: any) => 
+                    `**${contact.name}**\n` +
+                    `📞 ${contact.phones.join(", ") || "No phone numbers"}\n` +
+                    `📧 ${contact.emails.join(", ") || "No email addresses"}\n` +
+                    `🏠 ${contact.addresses.join(", ") || "No addresses"}`
+                  ).join("\n\n");
+                
+                return {
+                  content: [{
+                    type: "text",
+                    text: responseText
+                  }],
+                  isError: false
+                };
+              }
+              
+              default:
+                throw new Error(`Unknown operation: ${operation}`);
             }
           } catch (error) {
             return {
@@ -1328,12 +1465,55 @@ end tell`;
 }
 
 // Helper functions for argument type checking
-function isContactsArgs(args: unknown): args is { name?: string } {
-  return (
-    typeof args === "object" &&
-    args !== null &&
-    (!("name" in args) || typeof (args as { name: string }).name === "string")
-  );
+function isContactsArgs(args: unknown): args is { 
+  operation: "search" | "list" | "email" | "phone";
+  searchTerm?: string;
+  email?: string;
+  phoneNumber?: string;
+  maxResults?: number;
+  includeScore?: boolean;
+  // Legacy support
+  name?: string;
+} {
+  if (typeof args !== "object" || args === null) {
+    return false;
+  }
+  
+  const { operation, searchTerm, email, phoneNumber, maxResults, includeScore, name } = args as any;
+  
+  // Legacy support - if 'name' is provided but no 'operation', treat as search
+  if (name && !operation) {
+    return typeof name === "string";
+  }
+  
+  // New operation-based structure
+  if (!operation || !["search", "list", "email", "phone"].includes(operation)) {
+    return false;
+  }
+  
+  // Validate operation-specific requirements
+  if (operation === "search" && (!searchTerm || typeof searchTerm !== "string")) {
+    return false;
+  }
+  
+  if (operation === "email" && (!email || typeof email !== "string")) {
+    return false;
+  }
+  
+  if (operation === "phone" && (!phoneNumber || typeof phoneNumber !== "string")) {
+    return false;
+  }
+  
+  // Validate optional fields
+  if (maxResults !== undefined && typeof maxResults !== "number") {
+    return false;
+  }
+  
+  if (includeScore !== undefined && typeof includeScore !== "boolean") {
+    return false;
+  }
+  
+  return true;
 }
 
 function isNotesArgs(args: unknown): args is { 
