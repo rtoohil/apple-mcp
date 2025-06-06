@@ -157,66 +157,108 @@ async function searchMailsAdvanced(options: SearchOptions): Promise<EmailSearchR
     const limit = options.limit || 20;
     const results: EmailSearchResult[] = [];
     
-    // Build a comprehensive AppleScript for better email retrieval
+    // Build search criteria for Mail app's native search
+    let searchCriteria = '';
+    if (options.searchTerm) {
+      searchCriteria = options.searchTerm;
+    } else if (options.content) {
+      searchCriteria = options.content;
+    } else if (options.subject) {
+      searchCriteria = options.subject;
+    } else if (options.sender) {
+      searchCriteria = options.sender;
+    }
+    
+    if (!searchCriteria) {
+      return [];
+    }
+    
+    // Use Mail app's native search functionality with proper delimited output
+    const escapedSearch = searchCriteria.replace(/"/g, '\\"');
     const script = `
 tell application "Mail"
-    set allEmails to {}
-    set allBoxes to every mailbox
+    set searchResults to {}
     
-    repeat with currentBox in allBoxes
-        try
-            set boxName to name of currentBox
-            set accountName to ""
+    try
+        -- Search across all accounts and mailboxes
+        set allAccounts to every account
+        repeat with currentAccount in allAccounts
             try
-                set accountName to name of account of currentBox
-            end try
-            
-            set boxMessages to messages of currentBox
-            repeat with msg in boxMessages
-                try
-                    set msgInfo to {¬
-                        subject: (subject of msg), ¬
-                        sender: (sender of msg), ¬
-                        dateSent: (date sent of msg) as string, ¬
-                        isRead: (read status of msg), ¬
-                        mailbox: boxName, ¬
-                        account: accountName, ¬
-                        messageId: (message id of msg)}
-                    
+                set accountName to name of currentAccount
+                set allMailboxes to every mailbox of currentAccount
+                
+                repeat with currentMailbox in allMailboxes
                     try
-                        set msgContent to content of msg
-                        if length of msgContent > 1000 then
-                            set msgContent to (text 1 thru 1000 of msgContent) & "..."
-                        end if
-                        set msgInfo to msgInfo & {content: msgContent}
+                        set mailboxName to name of currentMailbox
+                        
+                        -- Search for messages containing the search term
+                        set searchMessages to (every message of currentMailbox whose (content contains "${escapedSearch}" or subject contains "${escapedSearch}" or sender contains "${escapedSearch}"))
+                        
+                        repeat with msg in searchMessages
+                            try
+                                set msgSubject to subject of msg
+                                if msgSubject is missing value then set msgSubject to "No Subject"
+                                
+                                set msgSender to sender of msg as string
+                                if msgSender is missing value then set msgSender to "Unknown Sender"
+                                
+                                set msgDate to date sent of msg as string
+                                set msgRead to read status of msg
+                                set msgId to message id of msg
+                                if msgId is missing value then set msgId to ""
+                                
+                                -- Get content safely
+                                set msgContent to ""
+                                try
+                                    set fullContent to content of msg
+                                    if fullContent is not missing value then
+                                        if length of fullContent > 500 then
+                                            set msgContent to (text 1 thru 500 of fullContent) & "..."
+                                        else
+                                            set msgContent to fullContent
+                                        end if
+                                    else
+                                        set msgContent to "[Content not available]"
+                                    end if
+                                on error
+                                    set msgContent to "[Content not available]"
+                                end try
+                                
+                                -- Format as delimited string for easier parsing
+                                set msgInfo to "EMAIL_START|" & msgSubject & "|" & msgSender & "|" & msgDate & "|" & msgRead & "|" & mailboxName & "|" & accountName & "|" & msgId & "|" & msgContent & "|EMAIL_END"
+                                set end of searchResults to msgInfo
+                                
+                                if (count of searchResults) >= ${limit * 2} then exit repeat
+                            on error
+                                -- Skip problematic messages
+                            end try
+                        end repeat
+                        
+                        if (count of searchResults) >= ${limit * 2} then exit repeat
                     on error
-                        set msgInfo to msgInfo & {content: "[Content not available]"}
+                        -- Skip problematic mailboxes  
                     end try
-                    
-                    set end of allEmails to msgInfo
-                    
-                    if (count of allEmails) >= ${limit * 3} then exit repeat
-                on error
-                    -- Skip problematic messages
-                end try
-            end repeat
-            
-            if (count of allEmails) >= ${limit * 3} then exit repeat
-        on error
-            -- Skip problematic mailboxes
-        end try
-    end repeat
-    
-    return allEmails
+                end repeat
+                
+                if (count of searchResults) >= ${limit * 2} then exit repeat
+            on error
+                -- Skip problematic accounts
+            end try
+        end repeat
+        
+        return searchResults
+    on error e
+        return {"ERROR: " & e}
+    end try
 end tell`;
 
     const asResult = await runAppleScript(script);
     
     if (asResult && typeof asResult === 'string') {
-      // Parse the AppleScript result
-      const emails = parseAppleScriptEmailResult(asResult);
+      // Parse the improved AppleScript result
+      const emails = parseDelimitedEmailResult(asResult);
       
-      // Apply filters and scoring
+      // Apply scoring and filtering
       for (const email of emails) {
         const searchResults = evaluateEmailMatch(email, options);
         if (searchResults.length > 0) {
@@ -239,7 +281,51 @@ end tell`;
 }
 
 /**
- * Parse AppleScript email result into structured data
+ * Parse delimited email result into structured data (new format)
+ */
+function parseDelimitedEmailResult(asResult: string): EmailMessage[] {
+  const emails: EmailMessage[] = [];
+  
+  try {
+    // Split the result into individual email entries
+    const emailMatches = asResult.match(/EMAIL_START\|.*?\|EMAIL_END/g);
+    
+    if (emailMatches) {
+      for (const match of emailMatches) {
+        try {
+          // Remove the EMAIL_START and EMAIL_END markers
+          const cleaned = match.replace(/^EMAIL_START\|/, '').replace(/\|EMAIL_END$/, '');
+          const parts = cleaned.split('|');
+          
+          if (parts.length >= 8) {
+            const [subject, sender, dateSent, isRead, mailbox, accountName, messageId, ...contentParts] = parts;
+            const content = contentParts.join('|'); // Rejoin in case content had pipe characters
+            
+            emails.push({
+              subject: subject || "No subject",
+              sender: sender || "Unknown sender", 
+              dateSent: dateSent || new Date().toString(),
+              content: content || "[Content not available]",
+              isRead: isRead === "true",
+              mailbox: mailbox || "Unknown mailbox",
+              messageId: messageId || "",
+              accountName: accountName || ""
+            });
+          }
+        } catch (parseError) {
+          console.error("Error parsing email match:", parseError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error parsing delimited AppleScript result:", error);
+  }
+  
+  return emails;
+}
+
+/**
+ * Parse AppleScript email result into structured data (legacy format)
  */
 function parseAppleScriptEmailResult(asResult: string): EmailMessage[] {
   const emails: EmailMessage[] = [];
