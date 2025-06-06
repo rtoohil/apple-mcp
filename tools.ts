@@ -102,14 +102,14 @@ const CONTACTS_TOOL: Tool = {
   
   const MAIL_TOOL: Tool = {
     name: "mail",
-    description: "Interact with Apple Mail app - read unread emails, search emails, and send emails",
+    description: "Interact with Apple Mail app with advanced search capabilities - search by content, sender, subject with fuzzy matching support",
     inputSchema: {
       type: "object",
       properties: {
         operation: {
           type: "string",
-          description: "Operation to perform: 'unread', 'search', 'send', 'mailboxes', or 'accounts'",
-          enum: ["unread", "search", "send", "mailboxes", "accounts"]
+          description: "Operation to perform: 'unread', 'search', 'searchSender', 'searchContent', 'searchSubject', 'searchAdvanced', 'send', 'mailboxes', or 'accounts'",
+          enum: ["unread", "search", "searchSender", "searchContent", "searchSubject", "searchAdvanced", "send", "mailboxes", "accounts"]
         },
         account: {
           type: "string",
@@ -121,19 +121,35 @@ const CONTACTS_TOOL: Tool = {
         },
         limit: {
           type: "number",
-          description: "Number of emails to retrieve (optional, for unread and search operations)"
+          description: "Number of emails to retrieve (optional, default 10 for search operations, 20 for advanced search)"
         },
         searchTerm: {
           type: "string",
-          description: "Text to search for in emails (required for search operation)"
+          description: "General text to search for across all email fields (required for search operation)"
+        },
+        sender: {
+          type: "string", 
+          description: "Email sender to search for (required for searchSender operation, optional for searchAdvanced)"
+        },
+        content: {
+          type: "string",
+          description: "Text to search for in email content/body (required for searchContent operation, optional for searchAdvanced)"
+        },
+        subject: {
+          type: "string",
+          description: "Text to search for in email subject (required for searchSubject operation, optional for searchAdvanced and send operations)"
+        },
+        fuzzy: {
+          type: "boolean",
+          description: "Enable fuzzy matching for search operations (optional, default true)"
+        },
+        includeScore: {
+          type: "boolean",
+          description: "Include search relevance scoring in results (optional, default false)"
         },
         to: {
           type: "string",
           description: "Recipient email address (required for send operation)"
-        },
-        subject: {
-          type: "string",
-          description: "Email subject (required for send operation)"
         },
         body: {
           type: "string",

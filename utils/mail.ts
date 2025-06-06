@@ -63,6 +63,348 @@ interface EmailMessage {
   content: string;
   isRead: boolean;
   mailbox: string;
+  messageId?: string;
+  accountName?: string;
+}
+
+interface EmailSearchResult {
+  email: EmailMessage;
+  score: number;
+  matchType: 'subject' | 'sender' | 'content' | 'combined';
+  matchValue: string;
+}
+
+interface SearchOptions {
+  searchTerm?: string;
+  sender?: string;
+  subject?: string;
+  content?: string;
+  account?: string;
+  mailbox?: string;
+  limit?: number;
+  fuzzy?: boolean;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+/**
+ * Calculate fuzzy search score for email matching
+ * @param searchTerm - The search term
+ * @param target - The target string to match against
+ * @returns Score between 0 and 1 (1 = perfect match)
+ */
+function calculateEmailScore(searchTerm: string, target: string): number {
+  if (!target || !searchTerm) return 0;
+  
+  const search = searchTerm.toLowerCase();
+  const text = target.toLowerCase();
+  
+  // Exact match
+  if (search === text) return 1.0;
+  
+  // Starts with search term
+  if (text.startsWith(search)) return 0.9;
+  
+  // Contains search term
+  if (text.includes(search)) return 0.7;
+  
+  // Word boundary match (search term matches start of a word)
+  const words = text.split(/\s+/);
+  for (const word of words) {
+    if (word.startsWith(search)) return 0.8;
+    if (word.includes(search)) return 0.6;
+  }
+  
+  // Email-specific matching for sender addresses
+  if (text.includes('@') && search.includes('@')) {
+    const [searchUser, searchDomain] = search.split('@');
+    const [targetUser, targetDomain] = text.split('@');
+    
+    if (searchDomain && targetDomain && targetDomain.includes(searchDomain)) {
+      return 0.5;
+    }
+    if (searchUser && targetUser && targetUser.includes(searchUser)) {
+      return 0.5;
+    }
+  }
+  
+  // Fuzzy character matching
+  let matches = 0;
+  let searchIndex = 0;
+  for (let i = 0; i < text.length && searchIndex < search.length; i++) {
+    if (text[i] === search[searchIndex]) {
+      matches++;
+      searchIndex++;
+    }
+  }
+  
+  if (matches === search.length) {
+    return 0.3 * (matches / text.length);
+  }
+  
+  return 0;
+}
+
+/**
+ * Enhanced email search with multiple criteria support
+ */
+async function searchMailsAdvanced(options: SearchOptions): Promise<EmailSearchResult[]> {
+  try {
+    if (!(await checkMailAccess())) {
+      return [];
+    }
+
+    const limit = options.limit || 20;
+    const results: EmailSearchResult[] = [];
+    
+    // Build a comprehensive AppleScript for better email retrieval
+    const script = `
+tell application "Mail"
+    set allEmails to {}
+    set allBoxes to every mailbox
+    
+    repeat with currentBox in allBoxes
+        try
+            set boxName to name of currentBox
+            set accountName to ""
+            try
+                set accountName to name of account of currentBox
+            end try
+            
+            set boxMessages to messages of currentBox
+            repeat with msg in boxMessages
+                try
+                    set msgInfo to {¬
+                        subject: (subject of msg), ¬
+                        sender: (sender of msg), ¬
+                        dateSent: (date sent of msg) as string, ¬
+                        isRead: (read status of msg), ¬
+                        mailbox: boxName, ¬
+                        account: accountName, ¬
+                        messageId: (message id of msg)}
+                    
+                    try
+                        set msgContent to content of msg
+                        if length of msgContent > 1000 then
+                            set msgContent to (text 1 thru 1000 of msgContent) & "..."
+                        end if
+                        set msgInfo to msgInfo & {content: msgContent}
+                    on error
+                        set msgInfo to msgInfo & {content: "[Content not available]"}
+                    end try
+                    
+                    set end of allEmails to msgInfo
+                    
+                    if (count of allEmails) >= ${limit * 3} then exit repeat
+                on error
+                    -- Skip problematic messages
+                end try
+            end repeat
+            
+            if (count of allEmails) >= ${limit * 3} then exit repeat
+        on error
+            -- Skip problematic mailboxes
+        end try
+    end repeat
+    
+    return allEmails
+end tell`;
+
+    const asResult = await runAppleScript(script);
+    
+    if (asResult && typeof asResult === 'string') {
+      // Parse the AppleScript result
+      const emails = parseAppleScriptEmailResult(asResult);
+      
+      // Apply filters and scoring
+      for (const email of emails) {
+        const searchResults = evaluateEmailMatch(email, options);
+        if (searchResults.length > 0) {
+          results.push(...searchResults);
+        }
+      }
+    }
+
+    // Sort by score and return top results
+    return results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+      
+  } catch (error) {
+    console.error("Error in searchMailsAdvanced:", error);
+    throw new Error(
+      `Error in advanced email search: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+}
+
+/**
+ * Parse AppleScript email result into structured data
+ */
+function parseAppleScriptEmailResult(asResult: string): EmailMessage[] {
+  const emails: EmailMessage[] = [];
+  
+  try {
+    // Try to parse as structured data
+    const matches = asResult.match(/\{[^}]+\}/g);
+    if (matches) {
+      for (const match of matches) {
+        try {
+          const props = match.substring(1, match.length - 1).split(',');
+          const emailData: { [key: string]: string } = {};
+
+          for (const prop of props) {
+            const parts = prop.split(':');
+            if (parts.length >= 2) {
+              const key = parts[0].trim();
+              const value = parts.slice(1).join(':').trim();
+              emailData[key] = value;
+            }
+          }
+
+          if (emailData.subject || emailData.sender) {
+            emails.push({
+              subject: emailData.subject || "No subject",
+              sender: emailData.sender || "Unknown sender",
+              dateSent: emailData.dateSent || new Date().toString(),
+              content: emailData.content || "[Content not available]",
+              isRead: emailData.isRead === "true",
+              mailbox: emailData.mailbox || "Unknown mailbox",
+              messageId: emailData.messageId,
+              accountName: emailData.account
+            });
+          }
+        } catch (parseError) {
+          console.error("Error parsing email match:", parseError);
+        }
+      }
+    }
+  } catch (error) {
+    console.error("Error parsing AppleScript result:", error);
+  }
+  
+  return emails;
+}
+
+/**
+ * Evaluate how well an email matches search criteria
+ */
+function evaluateEmailMatch(email: EmailMessage, options: SearchOptions): EmailSearchResult[] {
+  const results: EmailSearchResult[] = [];
+  const minScore = options.fuzzy ? 0.3 : 0.7;
+  
+  // General search term matching
+  if (options.searchTerm) {
+    const subjectScore = calculateEmailScore(options.searchTerm, email.subject);
+    const senderScore = calculateEmailScore(options.searchTerm, email.sender);
+    const contentScore = calculateEmailScore(options.searchTerm, email.content);
+    
+    const maxScore = Math.max(subjectScore, senderScore, contentScore);
+    if (maxScore >= minScore) {
+      let matchType: 'subject' | 'sender' | 'content' | 'combined' = 'combined';
+      let matchValue = options.searchTerm;
+      
+      if (subjectScore === maxScore) matchType = 'subject';
+      else if (senderScore === maxScore) matchType = 'sender';
+      else if (contentScore === maxScore) matchType = 'content';
+      
+      results.push({
+        email,
+        score: maxScore,
+        matchType,
+        matchValue
+      });
+    }
+  }
+  
+  // Specific sender matching
+  if (options.sender) {
+    const senderScore = calculateEmailScore(options.sender, email.sender);
+    if (senderScore >= minScore) {
+      results.push({
+        email,
+        score: senderScore,
+        matchType: 'sender',
+        matchValue: options.sender
+      });
+    }
+  }
+  
+  // Specific subject matching
+  if (options.subject) {
+    const subjectScore = calculateEmailScore(options.subject, email.subject);
+    if (subjectScore >= minScore) {
+      results.push({
+        email,
+        score: subjectScore,
+        matchType: 'subject',
+        matchValue: options.subject
+      });
+    }
+  }
+  
+  // Specific content matching
+  if (options.content) {
+    const contentScore = calculateEmailScore(options.content, email.content);
+    if (contentScore >= minScore) {
+      results.push({
+        email,
+        score: contentScore,
+        matchType: 'content',
+        matchValue: options.content
+      });
+    }
+  }
+  
+  // Account/mailbox filtering
+  if (options.account && email.accountName && !email.accountName.toLowerCase().includes(options.account.toLowerCase())) {
+    return [];
+  }
+  
+  if (options.mailbox && !email.mailbox.toLowerCase().includes(options.mailbox.toLowerCase())) {
+    return [];
+  }
+  
+  return results;
+}
+
+/**
+ * Search emails by sender with fuzzy matching
+ */
+async function searchBySender(sender: string, limit = 10, fuzzy = true): Promise<EmailMessage[]> {
+  const searchResults = await searchMailsAdvanced({
+    sender,
+    limit,
+    fuzzy
+  });
+  
+  return searchResults.map(result => result.email);
+}
+
+/**
+ * Search emails by content with fuzzy matching
+ */
+async function searchByContent(content: string, limit = 10, fuzzy = true): Promise<EmailMessage[]> {
+  const searchResults = await searchMailsAdvanced({
+    content,
+    limit,
+    fuzzy
+  });
+  
+  return searchResults.map(result => result.email);
+}
+
+/**
+ * Search emails by subject with fuzzy matching
+ */
+async function searchBySubject(subject: string, limit = 10, fuzzy = true): Promise<EmailMessage[]> {
+  const searchResults = await searchMailsAdvanced({
+    subject,
+    limit,
+    fuzzy
+  });
+  
+  return searchResults.map(result => result.email);
 }
 
 async function getUnreadMails(limit = 10): Promise<EmailMessage[]> {
@@ -668,6 +1010,10 @@ end tell`);
 export default {
   getUnreadMails,
   searchMails,
+  searchMailsAdvanced,
+  searchBySender,
+  searchByContent,
+  searchBySubject,
   sendMail,
   getMailboxes,
   getAccounts,

@@ -767,6 +767,107 @@ end tell`;
                 };
               }
 
+              case "searchSender": {
+                if (!args.sender) {
+                  throw new Error("Sender is required for searchSender operation");
+                }
+                const emails = await mailModule.searchBySender(args.sender, args.limit, args.fuzzy);
+                return {
+                  content: [{ 
+                    type: "text", 
+                    text: emails.length > 0 ? 
+                      `Found ${emails.length} email(s) from sender "${args.sender}":\n\n` +
+                      emails.map((email: any) => 
+                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                      ).join("\n\n") :
+                      `No emails found from sender "${args.sender}"`
+                  }],
+                  isError: false
+                };
+              }
+
+              case "searchContent": {
+                if (!args.content) {
+                  throw new Error("Content search term is required for searchContent operation");
+                }
+                const emails = await mailModule.searchByContent(args.content, args.limit, args.fuzzy);
+                return {
+                  content: [{ 
+                    type: "text", 
+                    text: emails.length > 0 ? 
+                      `Found ${emails.length} email(s) containing "${args.content}":\n\n` +
+                      emails.map((email: any) => 
+                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                      ).join("\n\n") :
+                      `No emails found containing "${args.content}"`
+                  }],
+                  isError: false
+                };
+              }
+
+              case "searchSubject": {
+                if (!args.subject) {
+                  throw new Error("Subject search term is required for searchSubject operation");
+                }
+                const emails = await mailModule.searchBySubject(args.subject, args.limit, args.fuzzy);
+                return {
+                  content: [{ 
+                    type: "text", 
+                    text: emails.length > 0 ? 
+                      `Found ${emails.length} email(s) with subject containing "${args.subject}":\n\n` +
+                      emails.map((email: any) => 
+                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                      ).join("\n\n") :
+                      `No emails found with subject containing "${args.subject}"`
+                  }],
+                  isError: false
+                };
+              }
+
+              case "searchAdvanced": {
+                const searchOptions = {
+                  searchTerm: args.searchTerm,
+                  sender: args.sender,
+                  subject: args.subject,
+                  content: args.content,
+                  account: args.account,
+                  mailbox: args.mailbox,
+                  limit: args.limit,
+                  fuzzy: args.fuzzy
+                };
+                
+                const searchResults = await mailModule.searchMailsAdvanced(searchOptions);
+                
+                if (args.includeScore) {
+                  return {
+                    content: [{ 
+                      type: "text", 
+                      text: searchResults.length > 0 ? 
+                        `Found ${searchResults.length} email(s) with advanced search:\n\n` +
+                        searchResults.map((result: any) => 
+                          `[${result.email.dateSent}] From: ${result.email.sender} (Score: ${(result.score * 100).toFixed(1)}%, Match: ${result.matchType} - ${result.matchValue})\nMailbox: ${result.email.mailbox}\nSubject: ${result.email.subject}\n${result.email.content.substring(0, 200)}${result.email.content.length > 200 ? '...' : ''}`
+                        ).join("\n\n") :
+                        "No emails found matching advanced search criteria"
+                    }],
+                    isError: false
+                  };
+                } else {
+                  const emails = searchResults.map((result: any) => result.email);
+                  return {
+                    content: [{ 
+                      type: "text", 
+                      text: emails.length > 0 ? 
+                        `Found ${emails.length} email(s) with advanced search:\n\n` +
+                        emails.map((email: any) => 
+                          `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                        ).join("\n\n") :
+                        "No emails found matching advanced search criteria"
+                    }],
+                    isError: false
+                  };
+                }
+              }
+
               case "send": {
                 if (!args.to || !args.subject || !args.body) {
                   throw new Error("Recipient (to), subject, and body are required for send operation");
@@ -1601,22 +1702,26 @@ function isMessagesArgs(args: unknown): args is {
 }
 
 function isMailArgs(args: unknown): args is {
-  operation: "unread" | "search" | "send" | "mailboxes" | "accounts";
+  operation: "unread" | "search" | "searchSender" | "searchContent" | "searchSubject" | "searchAdvanced" | "send" | "mailboxes" | "accounts";
   account?: string;
   mailbox?: string;
   limit?: number;
   searchTerm?: string;
-  to?: string;
+  sender?: string;
+  content?: string;
   subject?: string;
+  fuzzy?: boolean;
+  includeScore?: boolean;
+  to?: string;
   body?: string;
   cc?: string;
   bcc?: string;
 } {
   if (typeof args !== "object" || args === null) return false;
   
-  const { operation, account, mailbox, limit, searchTerm, to, subject, body, cc, bcc } = args as any;
+  const { operation, account, mailbox, limit, searchTerm, sender, content, subject, fuzzy, includeScore, to, body, cc, bcc } = args as any;
   
-  if (!operation || !["unread", "search", "send", "mailboxes", "accounts"].includes(operation)) {
+  if (!operation || !["unread", "search", "searchSender", "searchContent", "searchSubject", "searchAdvanced", "send", "mailboxes", "accounts"].includes(operation)) {
     return false;
   }
   
@@ -1624,6 +1729,22 @@ function isMailArgs(args: unknown): args is {
   switch (operation) {
     case "search":
       if (!searchTerm || typeof searchTerm !== "string") return false;
+      break;
+    case "searchSender":
+      if (!sender || typeof sender !== "string") return false;
+      break;
+    case "searchContent":
+      if (!content || typeof content !== "string") return false;
+      break;
+    case "searchSubject":
+      if (!subject || typeof subject !== "string") return false;
+      break;
+    case "searchAdvanced":
+      // At least one search criterion required
+      if ((!searchTerm || typeof searchTerm !== "string") &&
+          (!sender || typeof sender !== "string") &&
+          (!content || typeof content !== "string") &&
+          (!subject || typeof subject !== "string")) return false;
       break;
     case "send":
       if (!to || typeof to !== "string" || 
@@ -1641,6 +1762,8 @@ function isMailArgs(args: unknown): args is {
   if (account && typeof account !== "string") return false;
   if (mailbox && typeof mailbox !== "string") return false;
   if (limit && typeof limit !== "number") return false;
+  if (fuzzy !== undefined && typeof fuzzy !== "boolean") return false;
+  if (includeScore !== undefined && typeof includeScore !== "boolean") return false;
   if (cc && typeof cc !== "string") return false;
   if (bcc && typeof bcc !== "string") return false;
   
