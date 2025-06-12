@@ -565,6 +565,19 @@ end tell`;
   }
 }
 
+const mailFunctions = {
+  checkMailAccess,
+  getUnreadMails,
+  getInboxMails,
+  searchMails,
+  getMailboxes,
+  getAccounts,
+  getMailboxesForAccounts,
+  sendMail,
+};
+
+export default mailFunctions;
+
 export {
   checkMailAccess,
   getUnreadMails,
