@@ -74,82 +74,97 @@ async function getUnreadMails(limit = 10): Promise<EmailMessage[]> {
       return [];
     }
 
-    // First, try with AppleScript which might be more reliable for this case
-    try {
-      const script = `
+    const script = `
 tell application "Mail"
-    set allMailboxes to every mailbox
     set resultList to {}
-
-    repeat with m in allMailboxes
+    set emailCount to 0
+    
+    -- Get all live accounts (excluding "On My Mac")
+    set liveAccounts to every account whose name is not "On My Mac"
+    
+    if (count of liveAccounts) is 0 then
+        return resultList
+    end if
+    
+    -- Loop through each live account
+    repeat with currentAccount in liveAccounts
         try
-            set unreadMessages to (messages of m whose read status is false)
-            if (count of unreadMessages) > 0 then
-                set msgLimit to ${limit}
-                if (count of unreadMessages) < msgLimit then
-                    set msgLimit to (count of unreadMessages)
-                end if
-
-                repeat with i from 1 to msgLimit
-                    try
-                        set currentMsg to item i of unreadMessages
-                        set msgData to {subject:(subject of currentMsg), sender:(sender of currentMsg), ¬
-                                        date:(date sent of currentMsg) as string, mailbox:(name of m)}
-
+            set accountName to name of currentAccount
+            set accountEnabled to enabled of currentAccount
+            
+            -- Only process if account is enabled
+            if accountEnabled then
+                try
+                    -- Get all mailboxes for this account
+                    set accountMailboxes to every mailbox of currentAccount
+                    
+                    repeat with currentMailbox in accountMailboxes
                         try
-                            set msgContent to content of currentMsg
-                            if length of msgContent > 500 then
-                                set msgContent to (text 1 thru 500 of msgContent) & "..."
-                            end if
-                            set msgData to msgData & {content:msgContent}
+                            set mailboxName to name of currentMailbox
+                            set unreadMessages to (messages of currentMailbox whose read status is false)
+                            
+                            repeat with currentMsg in unreadMessages
+                                if emailCount >= ${limit} then exit repeat
+                                
+                                try
+                                    -- Get message properties
+                                    set msgSubject to subject of currentMsg
+                                    if msgSubject is missing value then set msgSubject to "No Subject"
+                                    
+                                    set msgSender to sender of currentMsg as string
+                                    if msgSender is missing value then set msgSender to "Unknown Sender"
+                                    
+                                    set msgDate to date received of currentMsg as string
+                                    
+                                    -- Get content safely
+                                    set msgContent to ""
+                                    try
+                                        set fullContent to content of currentMsg
+                                        if fullContent is not missing value then
+                                            if length of fullContent > 500 then
+                                                set msgContent to (text 1 thru 500 of fullContent) & "..."
+                                            else
+                                                set msgContent to fullContent
+                                            end if
+                                        else
+                                            set msgContent to "[Content not available]"
+                                        end if
+                                    on error
+                                        set msgContent to "[Content not available]"
+                                    end try
+                                    
+                                    set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
+                                                  content:msgContent, isRead:false, mailbox:mailboxName, account:accountName}
+                                    set end of resultList to msgData
+                                    set emailCount to emailCount + 1
+                                    
+                                on error
+                                    -- Skip problematic messages
+                                end try
+                            end repeat
                         on error
-                            set msgData to msgData & {content:"[Content not available]"}
+                            -- Skip problematic mailboxes
                         end try
-
-                        set end of resultList to msgData
-                    end try
-                end repeat
-
-                if (count of resultList) ≥ ${limit} then exit repeat
+                    end repeat
+                on error errMsg
+                    -- Skip accounts with errors
+                end try
             end if
+            
+        on error errMsg
+            -- Skip problematic accounts entirely
         end try
     end repeat
-
+    
     return resultList
 end tell`;
 
-      const asResult = await runAppleScript(script);
+    const asResult = await runAppleScript(script);
 
-      // If we got results, parse them
-      if (asResult && asResult.toString().trim().length > 0) {
-        try {
-          // Try to parse as JSON if the result looks like JSON
-          if (asResult.startsWith("{") || asResult.startsWith("[")) {
-            const parsedResults = JSON.parse(asResult);
-            if (Array.isArray(parsedResults) && parsedResults.length > 0) {
-              return parsedResults.map((msg) => ({
-                subject: msg.subject || "No subject",
-                sender: msg.sender || "Unknown sender",
-                dateSent: msg.date || new Date().toString(),
-                content: msg.content || "[Content not available]",
-                isRead: false, // These are unread by definition
-                mailbox: msg.mailbox || "Unknown mailbox",
-              }));
-            }
-          }
-
-          // Try manual parsing if JSON parse fails
-          return parseMailData(asResult.toString());
-        } catch (parseError) {
-          console.error("Error parsing unread mails result:", parseError);
-          return [];
-        }
-      }
-      return [];
-    } catch (error) {
-      console.error("AppleScript error in getUnreadMails:", error);
-      return [];
+    if (asResult && asResult.toString().trim().length > 0) {
+      return parseMailData(asResult.toString());
     }
+    return [];
   } catch (error) {
     console.error("Error in getUnreadMails:", error);
     throw new Error(
@@ -263,68 +278,51 @@ end tell`;
 
 function parseMailData(data: string): EmailMessage[] {
   const emails: EmailMessage[] = [];
+  
   try {
     // Handle empty results
     if (!data || data.trim() === '' || data.trim() === '{}' || data.trim() === '{{}}') {
       return emails;
     }
 
-    // Parse AppleScript record format - look for nested records
-    const records = data.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
-    if (records) {
-      for (const record of records) {
-        try {
-          const cleanRecord = record.substring(1, record.length - 1);
-          
-          // Split by commas but be careful about nested structures
-          const props = [];
-          let current = '';
-          let depth = 0;
-          
-          for (let i = 0; i < cleanRecord.length; i++) {
-            const char = cleanRecord[i];
-            if (char === '{') depth++;
-            else if (char === '}') depth--;
-            else if (char === ',' && depth === 0) {
-              props.push(current.trim());
-              current = '';
-              continue;
-            }
-            current += char;
-          }
-          if (current.trim()) {
-            props.push(current.trim());
-          }
-
-          const emailData: { [key: string]: string } = {};
-          
-          for (const prop of props) {
-            const colonIndex = prop.indexOf(':');
-            if (colonIndex > 0) {
-              const key = prop.substring(0, colonIndex).trim();
-              const value = prop.substring(colonIndex + 1).trim();
-              emailData[key] = value;
-            }
-          }
-
-          if (emailData.subject || emailData.sender) {
-            emails.push({
-              subject: emailData.subject || "No subject",
-              sender: emailData.sender || "Unknown sender",
-              dateSent: emailData.date || new Date().toString(),
-              content: emailData.content || "[Content not available]",
-              isRead: emailData.isRead === "true",
-              mailbox: emailData.mailbox || "INBOX",
-              accountName: emailData.account || ""
-            });
-          }
-        } catch (parseError) {
-          // Silently skip problematic records in production
+    // Split by subject: to find individual emails (subject is always first)
+    const emailParts = data.split(/(?=subject:)/);
+    
+    for (let i = 0; i < emailParts.length; i++) {
+      const emailPart = emailParts[i].trim();
+      if (!emailPart) continue;
+      
+      try {
+        const emailData: { [key: string]: string } = {};
+        
+        // Parse each field by looking for the next field or end of string
+        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account):(.+?)(?=(?:, (?:subject|sender|date|content|isRead|mailbox|account):)|$)/g;
+        let match;
+        
+        while ((match = fieldPattern.exec(emailPart)) !== null) {
+          const key = match[1].trim();
+          const value = match[2].trim();
+          emailData[key] = value;
         }
+
+        if (emailData.subject || emailData.sender) {
+          const email = {
+            subject: emailData.subject || "No subject",
+            sender: emailData.sender || "Unknown sender",
+            dateSent: emailData.date || new Date().toString(),
+            content: emailData.content || "[Content not available]",
+            isRead: emailData.isRead === "true",
+            mailbox: emailData.mailbox || "Unknown mailbox",
+            accountName: emailData.account || ""
+          };
+          emails.push(email);
+        }
+      } catch (parseError) {
+        // Skip problematic email parts
       }
     }
   } catch (error) {
-    // Silently handle parsing errors in production
+    // Handle parsing errors silently
   }
 
   return emails;
@@ -341,61 +339,76 @@ tell application "Mail"
     set foundMessages to {}
     set messageCount to 0
 
-    set allAccounts to every account
-    repeat with currentAccount in allAccounts
+    -- Get all live accounts (excluding "On My Mac")
+    set liveAccounts to every account whose name is not "On My Mac"
+    
+    if (count of liveAccounts) is 0 then
+        return foundMessages
+    end if
+    
+    repeat with currentAccount in liveAccounts
         try
-            set allMailboxes to every mailbox of currentAccount
-            repeat with currentMailbox in allMailboxes
+            set accountName to name of currentAccount
+            set accountEnabled to enabled of currentAccount
+            
+            -- Only process if account is enabled
+            if accountEnabled then
                 try
-                    set mailboxName to name of currentMailbox
-                    set accountName to name of currentAccount
-
-                    -- Search messages in this mailbox
-                    set searchResults to (every message of currentMailbox whose (content contains "${searchTerm}" or subject contains "${searchTerm}" or sender contains "${searchTerm}"))
-
-                    repeat with msg in searchResults
-                        if messageCount >= ${limit} then exit repeat
-
+                    set allMailboxes to every mailbox of currentAccount
+                    repeat with currentMailbox in allMailboxes
                         try
-                            set msgSubject to subject of msg
-                            if msgSubject is missing value then set msgSubject to "No Subject"
+                            set mailboxName to name of currentMailbox
 
-                            set msgSender to sender of msg as string
-                            if msgSender is missing value then set msgSender to "Unknown Sender"
+                            -- Search messages in this mailbox
+                            set searchResults to (every message of currentMailbox whose (content contains "${searchTerm}" or subject contains "${searchTerm}" or sender contains "${searchTerm}"))
 
-                            set msgDate to date sent of msg as string
-                            set msgRead to read status of msg
+                            repeat with msg in searchResults
+                                if messageCount >= ${limit} then exit repeat
 
-                            set msgContent to ""
-                            try
-                                set fullContent to content of msg
-                                if fullContent is not missing value then
-                                    if length of fullContent > 500 then
-                                        set msgContent to (text 1 thru 500 of fullContent) & "..."
-                                    else
-                                        set msgContent to fullContent
-                                    end if
-                                else
-                                    set msgContent to "[Content not available]"
-                                end if
-                            on error
-                                set msgContent to "[Content not available]"
-                            end try
+                                try
+                                    set msgSubject to subject of msg
+                                    if msgSubject is missing value then set msgSubject to "No Subject"
 
-                            set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                          content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
-                            set end of foundMessages to msgData
-                            set messageCount to messageCount + 1
+                                    set msgSender to sender of msg as string
+                                    if msgSender is missing value then set msgSender to "Unknown Sender"
+
+                                    set msgDate to date received of msg as string
+                                    set msgRead to read status of msg
+
+                                    set msgContent to ""
+                                    try
+                                        set fullContent to content of msg
+                                        if fullContent is not missing value then
+                                            if length of fullContent > 500 then
+                                                set msgContent to (text 1 thru 500 of fullContent) & "..."
+                                            else
+                                                set msgContent to fullContent
+                                            end if
+                                        else
+                                            set msgContent to "[Content not available]"
+                                        end if
+                                    on error
+                                        set msgContent to "[Content not available]"
+                                    end try
+
+                                    set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
+                                                  content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
+                                    set end of foundMessages to msgData
+                                    set messageCount to messageCount + 1
+                                on error
+                                    -- Skip problematic messages
+                                end try
+                            end repeat
                         on error
-                            -- Skip problematic messages
+                            -- Skip problematic mailboxes
                         end try
                     end repeat
-                on error
-                    -- Skip problematic mailboxes
+                on error errMsg
+                    -- Skip accounts with errors
                 end try
-            end repeat
-        on error
-            -- Skip problematic accounts
+            end if
+        on error errMsg
+            -- Skip problematic accounts entirely
         end try
     end repeat
 
@@ -405,27 +418,7 @@ end tell`;
     const asResult = await runAppleScript(script);
 
     if (asResult && asResult.toString().trim().length > 0) {
-      try {
-        if (asResult.startsWith("{") || asResult.startsWith("[")) {
-          const parsedResults = JSON.parse(asResult);
-          if (Array.isArray(parsedResults) && parsedResults.length > 0) {
-            return parsedResults.map((msg) => ({
-              subject: msg.subject || "No subject",
-              sender: msg.sender || "Unknown sender",
-              dateSent: msg.date || new Date().toString(),
-              content: msg.content || "[Content not available]",
-              isRead: msg.isRead || false,
-              mailbox: msg.mailbox || "Unknown mailbox",
-              accountName: msg.account || "Unknown Account",
-            }));
-          }
-        }
-
-        return parseMailData(asResult.toString());
-      } catch (parseError) {
-        console.error("Error parsing search results:", parseError);
-        return [];
-      }
+      return parseMailData(asResult.toString());
     }
     return [];
   } catch (error) {
