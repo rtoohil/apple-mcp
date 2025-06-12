@@ -576,7 +576,16 @@ const mailFunctions = {
   sendMail,
 };
 
-export default {
-  mailFunctions;
+export default mailFunctions;
+
+export {
+  checkMailAccess,
+  getUnreadMails,
+  getInboxMails,
+  searchMails,
+  getMailboxes,
+  getAccounts,
+  getMailboxesForAccounts,
+  sendMail,
   type EmailMessage
 };
