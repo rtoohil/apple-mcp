@@ -66,6 +66,7 @@ interface EmailMessage {
   mailbox: string;
   messageId?: string;
   accountName?: string;
+  url?: string;
 }
 
 async function getUnreadMails(limit = 10): Promise<EmailMessage[]> {
@@ -111,6 +112,18 @@ tell application "Mail"
                             if msgSender is missing value then set msgSender to "Unknown Sender"
                             
                             set msgDate to date received of currentMsg as string
+                            set msgId to message id of currentMsg
+                            if msgId is missing value then set msgId to ""
+                            
+                            -- Get message URL
+                            set msgUrl to ""
+                            try
+                                if msgId is not "" then
+                                    set msgUrl to "message://" & msgId
+                                end if
+                            on error
+                                set msgUrl to ""
+                            end try
                             
                             -- Get content safely
                             set msgContent to ""
@@ -130,7 +143,7 @@ tell application "Mail"
                             end try
                             
                             set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                          content:msgContent, isRead:false, mailbox:"INBOX", account:accountName}
+                                          content:msgContent, isRead:false, mailbox:"INBOX", account:accountName, messageId:msgId, url:msgUrl}
                             set end of resultList to msgData
                             set emailCount to emailCount + 1
                             
@@ -212,6 +225,18 @@ tell application "Mail"
                             
                             set msgDate to date received of currentMsg as string
                             set msgRead to read status of currentMsg
+                            set msgId to message id of currentMsg
+                            if msgId is missing value then set msgId to ""
+                            
+                            -- Get message URL
+                            set msgUrl to ""
+                            try
+                                if msgId is not "" then
+                                    set msgUrl to "message://" & msgId
+                                end if
+                            on error
+                                set msgUrl to ""
+                            end try
                             
                             -- Get content safely
                             set msgContent to ""
@@ -231,7 +256,7 @@ tell application "Mail"
                             end try
                             
                             set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                          content:msgContent, isRead:msgRead, mailbox:"INBOX", account:accountName}
+                                          content:msgContent, isRead:msgRead, mailbox:"INBOX", account:accountName, messageId:msgId, url:msgUrl}
                             set end of resultList to msgData
                             set emailCount to emailCount + 1
                             
@@ -288,7 +313,7 @@ function parseMailData(data: string): EmailMessage[] {
         const emailData: { [key: string]: string } = {};
         
         // Parse each field by looking for the next field or end of string
-        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account):(.+?)(?=(?:, (?:subject|sender|date|content|isRead|mailbox|account):)|$)/g;
+        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account|messageId|url):(.+?)(?=(?:, (?:subject|sender|date|content|isRead|mailbox|account|messageId|url):)|$)/g;
         let match;
         
         while ((match = fieldPattern.exec(emailPart)) !== null) {
@@ -305,7 +330,9 @@ function parseMailData(data: string): EmailMessage[] {
             content: emailData.content || "[Content not available]",
             isRead: emailData.isRead === "true",
             mailbox: emailData.mailbox || "Unknown mailbox",
-            accountName: emailData.account || ""
+            messageId: emailData.messageId || "",
+            accountName: emailData.account || "",
+            url: emailData.url || ""
           };
           emails.push(email);
         }
@@ -366,6 +393,18 @@ tell application "Mail"
 
                                     set msgDate to date received of msg as string
                                     set msgRead to read status of msg
+                                    set msgId to message id of msg
+                                    if msgId is missing value then set msgId to ""
+                                    
+                                    -- Get message URL
+                                    set msgUrl to ""
+                                    try
+                                        if msgId is not "" then
+                                            set msgUrl to "message://" & msgId
+                                        end if
+                                    on error
+                                        set msgUrl to ""
+                                    end try
 
                                     set msgContent to ""
                                     try
@@ -384,7 +423,7 @@ tell application "Mail"
                                     end try
 
                                     set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                                  content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
+                                                  content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName, messageId:msgId, url:msgUrl}
                                     set end of foundMessages to msgData
                                     set messageCount to messageCount + 1
                                 on error

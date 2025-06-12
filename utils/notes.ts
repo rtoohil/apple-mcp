@@ -3,6 +3,7 @@ import { run } from '@jxa/run';
 type Note = {
     name: string;
     content: string;
+    url?: string;
 };
 
 type CreateNoteResult = {
@@ -19,10 +20,16 @@ async function getAllNotes() {
         const notes = Notes.notes();
 
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-        return notes.map((note: any) => ({
-            name: note.name(),
-            content: note.plaintext()
-        }));
+        return notes.map((note: any) => {
+            const noteId = note.id();
+            const noteUrl = noteId ? `notes://showNote?identifier=${noteId}` : '';
+            
+            return {
+                name: note.name(),
+                content: note.plaintext(),
+                url: noteUrl
+            };
+        });
     });
 
     return notes;
@@ -36,10 +43,16 @@ async function findNote(searchText: string) {
             {plaintext: {_contains: searchText}}
         ]})()
         // biome-ignore lint/suspicious/noExplicitAny: <explanation>
-        return notes.length > 0 ? notes.map((note: any) => ({
-            name: note.name(),
-            content: note.plaintext()
-        })) : [];
+        return notes.length > 0 ? notes.map((note: any) => {
+            const noteId = note.id();
+            const noteUrl = noteId ? `notes://showNote?identifier=${noteId}` : '';
+            
+            return {
+                name: note.name(),
+                content: note.plaintext(),
+                url: noteUrl
+            };
+        }) : [];
     }, searchText);
 
     if (notes.length === 0) {
