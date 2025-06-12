@@ -248,29 +248,9 @@ end tell`;
     const asResult = await runAppleScript(script);
 
     if (asResult && asResult.toString().trim().length > 0) {
-      try {
-        // Try to parse as JSON if the result looks like JSON
-        if (asResult.startsWith("{") || asResult.startsWith("[")) {
-          const parsedResults = JSON.parse(asResult);
-          if (Array.isArray(parsedResults) && parsedResults.length > 0) {
-            return parsedResults.map((msg) => ({
-              subject: msg.subject || "No subject",
-              sender: msg.sender || "Unknown sender",
-              dateSent: msg.date || new Date().toString(),
-              content: msg.content || "[Content not available]",
-              isRead: msg.isRead || false,
-              mailbox: msg.mailbox || "Inbox",
-              accountName: msg.account || "Unknown Account",
-            }));
-          }
-        }
-
-        // Try manual parsing if JSON parse fails
-        return parseMailData(asResult.toString());
-      } catch (parseError) {
-        console.error("Error parsing inbox mails result:", parseError);
-        return [];
-      }
+      // AppleScript returns data in record format, always use manual parsing
+      const manualParsed = parseMailData(asResult.toString());
+      return manualParsed;
     }
     return [];
   } catch (error) {
@@ -284,14 +264,40 @@ end tell`;
 function parseMailData(data: string): EmailMessage[] {
   const emails: EmailMessage[] = [];
   try {
-    // Parse AppleScript record format
-    const records = data.match(/\{[^}]+\}/g);
+    // Handle empty results
+    if (!data || data.trim() === '' || data.trim() === '{}' || data.trim() === '{{}}') {
+      return emails;
+    }
+
+    // Parse AppleScript record format - look for nested records
+    const records = data.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
     if (records) {
       for (const record of records) {
         try {
-          const props = record.substring(1, record.length - 1).split(',');
-          const emailData: { [key: string]: string } = {};
+          const cleanRecord = record.substring(1, record.length - 1);
+          
+          // Split by commas but be careful about nested structures
+          const props = [];
+          let current = '';
+          let depth = 0;
+          
+          for (let i = 0; i < cleanRecord.length; i++) {
+            const char = cleanRecord[i];
+            if (char === '{') depth++;
+            else if (char === '}') depth--;
+            else if (char === ',' && depth === 0) {
+              props.push(current.trim());
+              current = '';
+              continue;
+            }
+            current += char;
+          }
+          if (current.trim()) {
+            props.push(current.trim());
+          }
 
+          const emailData: { [key: string]: string } = {};
+          
           for (const prop of props) {
             const colonIndex = prop.indexOf(':');
             if (colonIndex > 0) {
@@ -308,17 +314,17 @@ function parseMailData(data: string): EmailMessage[] {
               dateSent: emailData.date || new Date().toString(),
               content: emailData.content || "[Content not available]",
               isRead: emailData.isRead === "true",
-              mailbox: emailData.mailbox || "Unknown mailbox",
+              mailbox: emailData.mailbox || "INBOX",
               accountName: emailData.account || ""
             });
           }
         } catch (parseError) {
-          console.error("Error parsing individual email record:", parseError);
+          // Silently skip problematic records in production
         }
       }
     }
   } catch (error) {
-    console.error("Error parsing mail data:", error);
+    // Silently handle parsing errors in production
   }
 
   return emails;
