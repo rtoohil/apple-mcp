@@ -565,7 +565,7 @@ end tell`;
   }
 }
 
-export default {
+const mailFunctions = {
   checkMailAccess,
   getUnreadMails,
   getInboxMails,
@@ -574,5 +574,9 @@ export default {
   getAccounts,
   getMailboxesForAccounts,
   sendMail,
+};
+
+export default {
+  mailFunctions;
   type EmailMessage
 };
