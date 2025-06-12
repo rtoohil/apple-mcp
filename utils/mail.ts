@@ -168,39 +168,39 @@ async function getInboxMails(limit = 10): Promise<EmailMessage[]> {
 tell application "Mail"
     set resultList to {}
     set emailCount to 0
-    
+
     -- Try to get messages from inbox mailboxes across all accounts
     set allAccounts to every account
-    
+
     repeat with currentAccount in allAccounts
         try
             set accountName to name of currentAccount
-            
+
             -- Look for inbox mailboxes (could be "INBOX", "Inbox", etc.)
             set accountMailboxes to every mailbox of currentAccount
             repeat with currentMailbox in accountMailboxes
                 try
                     set mailboxName to name of currentMailbox
-                    
+
                     -- Check if this is an inbox (case insensitive)
                     if (mailboxName contains "Inbox" or mailboxName contains "INBOX" or mailboxName contains "inbox") then
                         set inboxMessages to messages of currentMailbox
-                        
+
                         -- Get the most recent messages first
                         repeat with i from 1 to (count of inboxMessages)
                             if emailCount >= ${limit} then exit repeat
-                            
+
                             try
                                 set currentMsg to item i of inboxMessages
                                 set msgSubject to subject of currentMsg
                                 if msgSubject is missing value then set msgSubject to "No Subject"
-                                
+
                                 set msgSender to sender of currentMsg as string
                                 if msgSender is missing value then set msgSender to "Unknown Sender"
-                                
+
                                 set msgDate to date sent of currentMsg as string
                                 set msgRead to read status of currentMsg
-                                
+
                                 -- Get content safely
                                 set msgContent to ""
                                 try
@@ -217,12 +217,12 @@ tell application "Mail"
                                 on error
                                     set msgContent to "[Content not available]"
                                 end try
-                                
+
                                 set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
                                               content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
                                 set end of resultList to msgData
                                 set emailCount to emailCount + 1
-                                
+
                             on error
                                 -- Skip problematic messages
                             end try
@@ -236,7 +236,7 @@ tell application "Mail"
             -- Skip problematic accounts
         end try
     end repeat
-    
+
     return resultList
 end tell`;
 
@@ -286,7 +286,7 @@ function parseMailData(data: string): EmailMessage[] {
         try {
           const props = record.substring(1, record.length - 1).split(',');
           const emailData: { [key: string]: string } = {};
-          
+
           for (const prop of props) {
             const colonIndex = prop.indexOf(':');
             if (colonIndex > 0) {
@@ -295,7 +295,7 @@ function parseMailData(data: string): EmailMessage[] {
               emailData[key] = value;
             }
           }
-          
+
           if (emailData.subject || emailData.sender) {
             emails.push({
               subject: emailData.subject || "No subject",
@@ -315,7 +315,7 @@ function parseMailData(data: string): EmailMessage[] {
   } catch (error) {
     console.error("Error parsing mail data:", error);
   }
-  
+
   return emails;
 }
 
@@ -329,7 +329,7 @@ async function searchMails(searchTerm: string, limit = 10): Promise<EmailMessage
 tell application "Mail"
     set foundMessages to {}
     set messageCount to 0
-    
+
     set allAccounts to every account
     repeat with currentAccount in allAccounts
         try
@@ -338,23 +338,23 @@ tell application "Mail"
                 try
                     set mailboxName to name of currentMailbox
                     set accountName to name of currentAccount
-                    
+
                     -- Search messages in this mailbox
                     set searchResults to (every message of currentMailbox whose (content contains "${searchTerm}" or subject contains "${searchTerm}" or sender contains "${searchTerm}"))
-                    
+
                     repeat with msg in searchResults
                         if messageCount >= ${limit} then exit repeat
-                        
+
                         try
                             set msgSubject to subject of msg
                             if msgSubject is missing value then set msgSubject to "No Subject"
-                            
+
                             set msgSender to sender of msg as string
                             if msgSender is missing value then set msgSender to "Unknown Sender"
-                            
+
                             set msgDate to date sent of msg as string
                             set msgRead to read status of msg
-                            
+
                             set msgContent to ""
                             try
                                 set fullContent to content of msg
@@ -370,7 +370,7 @@ tell application "Mail"
                             on error
                                 set msgContent to "[Content not available]"
                             end try
-                            
+
                             set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
                                           content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
                             set end of foundMessages to msgData
@@ -387,7 +387,7 @@ tell application "Mail"
             -- Skip problematic accounts
         end try
     end repeat
-    
+
     return foundMessages
 end tell`;
 
@@ -442,13 +442,13 @@ tell application "Mail"
 end tell`;
 
     const result = await runAppleScript(script);
-    
+
     if (result && typeof result === 'string') {
       // Parse the result into an array
       const cleaned = result.replace(/[{}]/g, '').split(',').map(name => name.trim().replace(/"/g, ''));
       return cleaned.filter(name => name.length > 0);
     }
-    
+
     return [];
   } catch (error) {
     console.error("Error getting mailboxes:", error);
@@ -475,13 +475,13 @@ tell application "Mail"
 end tell`;
 
     const result = await runAppleScript(script);
-    
+
     if (result && typeof result === 'string') {
       // Parse the result into an array
       const cleaned = result.replace(/[{}]/g, '').split(',').map(name => name.trim().replace(/"/g, ''));
       return cleaned.filter(name => name.length > 0);
     }
-    
+
     return [];
   } catch (error) {
     console.error("Error getting accounts:", error);
@@ -513,13 +513,13 @@ tell application "Mail"
 end tell`;
 
     const result = await runAppleScript(script);
-    
+
     if (result && typeof result === 'string') {
       // Parse the result into an array
       const cleaned = result.replace(/[{}]/g, '').split(',').map(name => name.trim().replace(/"/g, ''));
       return cleaned.filter(name => name.length > 0);
     }
-    
+
     return [];
   } catch (error) {
     console.error("Error getting mailboxes for account:", error);
@@ -565,20 +565,7 @@ end tell`;
   }
 }
 
-const mailFunctions = {
-  checkMailAccess,
-  getUnreadMails,
-  getInboxMails,
-  searchMails,
-  getMailboxes,
-  getAccounts,
-  getMailboxesForAccounts,
-  sendMail,
-};
-
-export default mailFunctions;
-
-export {
+export default {
   checkMailAccess,
   getUnreadMails,
   getInboxMails,
