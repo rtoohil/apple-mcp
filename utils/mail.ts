@@ -95,55 +95,47 @@ tell application "Mail"
             -- Only process if account is enabled
             if accountEnabled then
                 try
-                    -- Get all mailboxes for this account
-                    set accountMailboxes to every mailbox of currentAccount
+                    -- Access INBOX mailbox directly (same as getInboxMails)
+                    set inboxMailbox to mailbox "INBOX" of currentAccount
+                    set unreadMessages to (messages of inboxMailbox whose read status is false)
                     
-                    repeat with currentMailbox in accountMailboxes
+                    repeat with currentMsg in unreadMessages
+                        if emailCount >= ${limit} then exit repeat
+                        
                         try
-                            set mailboxName to name of currentMailbox
-                            set unreadMessages to (messages of currentMailbox whose read status is false)
+                            -- Get message properties
+                            set msgSubject to subject of currentMsg
+                            if msgSubject is missing value then set msgSubject to "No Subject"
                             
-                            repeat with currentMsg in unreadMessages
-                                if emailCount >= ${limit} then exit repeat
-                                
-                                try
-                                    -- Get message properties
-                                    set msgSubject to subject of currentMsg
-                                    if msgSubject is missing value then set msgSubject to "No Subject"
-                                    
-                                    set msgSender to sender of currentMsg as string
-                                    if msgSender is missing value then set msgSender to "Unknown Sender"
-                                    
-                                    set msgDate to date received of currentMsg as string
-                                    
-                                    -- Get content safely
-                                    set msgContent to ""
-                                    try
-                                        set fullContent to content of currentMsg
-                                        if fullContent is not missing value then
-                                            if length of fullContent > 500 then
-                                                set msgContent to (text 1 thru 500 of fullContent) & "..."
-                                            else
-                                                set msgContent to fullContent
-                                            end if
-                                        else
-                                            set msgContent to "[Content not available]"
-                                        end if
-                                    on error
-                                        set msgContent to "[Content not available]"
-                                    end try
-                                    
-                                    set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                                  content:msgContent, isRead:false, mailbox:mailboxName, account:accountName}
-                                    set end of resultList to msgData
-                                    set emailCount to emailCount + 1
-                                    
-                                on error
-                                    -- Skip problematic messages
-                                end try
-                            end repeat
+                            set msgSender to sender of currentMsg as string
+                            if msgSender is missing value then set msgSender to "Unknown Sender"
+                            
+                            set msgDate to date received of currentMsg as string
+                            
+                            -- Get content safely
+                            set msgContent to ""
+                            try
+                                set fullContent to content of currentMsg
+                                if fullContent is not missing value then
+                                    if length of fullContent > 500 then
+                                        set msgContent to (text 1 thru 500 of fullContent) & "..."
+                                    else
+                                        set msgContent to fullContent
+                                    end if
+                                else
+                                    set msgContent to "[Content not available]"
+                                end if
+                            on error
+                                set msgContent to "[Content not available]"
+                            end try
+                            
+                            set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
+                                          content:msgContent, isRead:false, mailbox:"INBOX", account:accountName}
+                            set end of resultList to msgData
+                            set emailCount to emailCount + 1
+                            
                         on error
-                            -- Skip problematic mailboxes
+                            -- Skip problematic messages
                         end try
                     end repeat
                 on error errMsg
