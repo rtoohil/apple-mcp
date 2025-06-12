@@ -168,75 +168,80 @@ async function getInboxMails(limit = 10): Promise<EmailMessage[]> {
 tell application "Mail"
     set resultList to {}
     set emailCount to 0
-
-    -- Try to get messages from inbox mailboxes across all accounts
-    set allAccounts to every account
-
-    repeat with currentAccount in allAccounts
+    
+    -- Get all live accounts (excluding "On My Mac")
+    set liveAccounts to every account whose name is not "On My Mac"
+    
+    if (count of liveAccounts) is 0 then
+        return resultList
+    end if
+    
+    -- Loop through each live account
+    repeat with currentAccount in liveAccounts
         try
             set accountName to name of currentAccount
-
-            -- Look for inbox mailboxes (could be "INBOX", "Inbox", etc.)
-            set accountMailboxes to every mailbox of currentAccount
-            repeat with currentMailbox in accountMailboxes
+            set accountEnabled to enabled of currentAccount
+            
+            -- Only process if account is enabled
+            if accountEnabled then
                 try
-                    set mailboxName to name of currentMailbox
-
-                    -- Check if this is an inbox (case insensitive)
-                    if (mailboxName contains "Inbox" or mailboxName contains "INBOX" or mailboxName contains "inbox") then
-                        set inboxMessages to messages of currentMailbox
-
-                        -- Get the most recent messages first
-                        repeat with i from 1 to (count of inboxMessages)
-                            if emailCount >= ${limit} then exit repeat
-
+                    -- Access INBOX mailbox directly
+                    set inboxMailbox to mailbox "INBOX" of currentAccount
+                    set messageCount to count of messages in inboxMailbox
+                    
+                    -- Get messages up to the limit
+                    repeat with i from 1 to messageCount
+                        if emailCount >= ${limit} then exit repeat
+                        
+                        try
+                            set currentMsg to message i of inboxMailbox
+                            
+                            -- Get message properties
+                            set msgSubject to subject of currentMsg
+                            if msgSubject is missing value then set msgSubject to "No Subject"
+                            
+                            set msgSender to sender of currentMsg as string
+                            if msgSender is missing value then set msgSender to "Unknown Sender"
+                            
+                            set msgDate to date received of currentMsg as string
+                            set msgRead to read status of currentMsg
+                            
+                            -- Get content safely
+                            set msgContent to ""
                             try
-                                set currentMsg to item i of inboxMessages
-                                set msgSubject to subject of currentMsg
-                                if msgSubject is missing value then set msgSubject to "No Subject"
-
-                                set msgSender to sender of currentMsg as string
-                                if msgSender is missing value then set msgSender to "Unknown Sender"
-
-                                set msgDate to date sent of currentMsg as string
-                                set msgRead to read status of currentMsg
-
-                                -- Get content safely
-                                set msgContent to ""
-                                try
-                                    set fullContent to content of currentMsg
-                                    if fullContent is not missing value then
-                                        if length of fullContent > 500 then
-                                            set msgContent to (text 1 thru 500 of fullContent) & "..."
-                                        else
-                                            set msgContent to fullContent
-                                        end if
+                                set fullContent to content of currentMsg
+                                if fullContent is not missing value then
+                                    if length of fullContent > 500 then
+                                        set msgContent to (text 1 thru 500 of fullContent) & "..."
                                     else
-                                        set msgContent to "[Content not available]"
+                                        set msgContent to fullContent
                                     end if
-                                on error
+                                else
                                     set msgContent to "[Content not available]"
-                                end try
-
-                                set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
-                                              content:msgContent, isRead:msgRead, mailbox:mailboxName, account:accountName}
-                                set end of resultList to msgData
-                                set emailCount to emailCount + 1
-
+                                end if
                             on error
-                                -- Skip problematic messages
+                                set msgContent to "[Content not available]"
                             end try
-                        end repeat
-                    end if
-                on error
-                    -- Skip problematic mailboxes
+                            
+                            set msgData to {subject:msgSubject, sender:msgSender, date:msgDate, ¬
+                                          content:msgContent, isRead:msgRead, mailbox:"INBOX", account:accountName}
+                            set end of resultList to msgData
+                            set emailCount to emailCount + 1
+                            
+                        on error
+                            -- Skip problematic messages
+                        end try
+                    end repeat
+                on error errMsg
+                    -- Skip accounts without INBOX or other mailbox errors
                 end try
-            end repeat
-        on error
-            -- Skip problematic accounts
+            end if
+            
+        on error errMsg
+            -- Skip problematic accounts entirely
         end try
     end repeat
-
+    
     return resultList
 end tell`;
 
@@ -467,9 +472,18 @@ async function getAccounts(): Promise<string[]> {
     const script = `
 tell application "Mail"
     set accountNames to {}
-    set allAccounts to every account
-    repeat with a in allAccounts
-        set end of accountNames to (name of a)
+    -- Get all live accounts (excluding "On My Mac") that are enabled
+    set liveAccounts to every account whose name is not "On My Mac"
+    
+    repeat with a in liveAccounts
+        try
+            set accountEnabled to enabled of a
+            if accountEnabled then
+                set end of accountNames to (name of a)
+            end if
+        on error
+            -- Skip problematic accounts
+        end try
     end repeat
     return accountNames
 end tell`;
