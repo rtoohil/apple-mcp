@@ -165,9 +165,11 @@ tell application "Mail"
 end tell`;
 
     const asResult = await runAppleScript(script);
+    
 
     if (asResult && asResult.toString().trim().length > 0) {
-      return parseMailData(asResult.toString());
+      const parsedEmails = parseMailData(asResult.toString());
+      return parsedEmails;
     }
     return [];
   } catch (error) {
@@ -278,6 +280,7 @@ tell application "Mail"
 end tell`;
 
     const asResult = await runAppleScript(script);
+    
 
     if (asResult && asResult.toString().trim().length > 0) {
       // AppleScript returns data in record format, always use manual parsing
@@ -313,13 +316,14 @@ function parseMailData(data: string): EmailMessage[] {
         const emailData: { [key: string]: string } = {};
         
         // Parse each field by looking for the next field or end of string
-        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account|messageId|url):(.+?)(?=(?:, (?:subject|sender|date|content|isRead|mailbox|account|messageId|url):)|$)/g;
+        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account|messageId|url):(.+?)(?=(?:,\s*(?:subject|sender|date|content|isRead|mailbox|account|messageId|url):)|$)/g;
         let match;
         
         while ((match = fieldPattern.exec(emailPart)) !== null) {
           const key = match[1].trim();
           const value = match[2].trim();
           emailData[key] = value;
+          
         }
 
         if (emailData.subject || emailData.sender) {
