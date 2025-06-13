@@ -62,7 +62,8 @@ async function findNote(searchText: string) {
         );
         return closestMatch ? [{
             name: closestMatch.name,
-            content: closestMatch.content
+            content: closestMatch.content,
+            url: closestMatch.url
         }] : [];
     }
 

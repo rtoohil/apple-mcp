@@ -119,7 +119,7 @@ tell application "Mail"
                             set msgUrl to ""
                             try
                                 if msgId is not "" then
-                                    set msgUrl to "message://" & msgId
+                                    set msgUrl to "message://%3C" & msgId & "%3E"
                                 end if
                             on error
                                 set msgUrl to ""
@@ -312,18 +312,24 @@ function parseMailData(data: string): EmailMessage[] {
       const emailPart = emailParts[i].trim();
       if (!emailPart) continue;
       
+      
       try {
         const emailData: { [key: string]: string } = {};
         
         // Parse each field by looking for the next field or end of string
-        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account|messageId|url):(.+?)(?=(?:,\s*(?:subject|sender|date|content|isRead|mailbox|account|messageId|url):)|$)/g;
+        const fieldPattern = /(subject|sender|date|content|isRead|mailbox|account|messageId|url|URL):(.+?)(?=(?:,\s*(?:subject|sender|date|content|isRead|mailbox|account|messageId|url|URL):)|$)/g;
         let match;
         
         while ((match = fieldPattern.exec(emailPart)) !== null) {
-          const key = match[1].trim();
-          const value = match[2].trim();
-          emailData[key] = value;
+          const key = match[1].trim().toLowerCase(); // normalize to lowercase
+          let value = match[2].trim();
           
+          // Clean up trailing commas from values
+          if (value.endsWith(',')) {
+            value = value.slice(0, -1);
+          }
+          
+          emailData[key] = value;
         }
 
         if (emailData.subject || emailData.sender) {
@@ -404,7 +410,7 @@ tell application "Mail"
                                     set msgUrl to ""
                                     try
                                         if msgId is not "" then
-                                            set msgUrl to "message://" & msgId
+                                            set msgUrl to "message://%3C" & msgId & "%3E"
                                         end if
                                     on error
                                         set msgUrl to ""
