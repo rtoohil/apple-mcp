@@ -442,7 +442,7 @@ function initServer() {
                   content: [{
                     type: "text",
                     text: foundNotes.length ?
-                      foundNotes.map(note => `${note.name}:\n${note.content}`).join("\n\n") :
+                      foundNotes.map(note => `${note.name}:\n${note.content}${note.url ? `\nURL: ${note.url}` : ''}`).join("\n\n") :
                       `No notes found for "${args.searchText}"`
                   }],
                   isError: false
@@ -455,7 +455,7 @@ function initServer() {
                   content: [{
                     type: "text",
                     text: allNotes.length ?
-                      allNotes.map((note) => `${note.name}:\n${note.content}`)
+                      allNotes.map((note) => `${note.name}:\n${note.content}${note.url ? `\nURL: ${note.url}` : ''}`)
                       .join("\n\n") : 
                       "No notes exist."
                   }],
@@ -618,7 +618,7 @@ function initServer() {
                     text: emails.length > 0 ? 
                       `Found ${emails.length} unread email(s):\n\n` +
                       emails.map((email: any) => 
-                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}${email.url ? `\nURL: ${email.url}` : ''}`
                       ).join("\n\n") :
                       "No unread emails found"
                   }],
@@ -634,7 +634,7 @@ function initServer() {
                     text: emails.length > 0 ? 
                       `Found ${emails.length} email(s) in inbox:\n\n` +
                       emails.map((email: any) => 
-                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}`
+                        `[${email.dateSent}] From: ${email.sender}\nMailbox: ${email.mailbox}\nSubject: ${email.subject}\n${email.content.substring(0, 200)}${email.content.length > 200 ? '...' : ''}${email.url ? `\nURL: ${email.url}` : ''}`
                       ).join("\n\n") :
                       "No emails found in inbox"
                   }],
