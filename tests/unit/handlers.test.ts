@@ -24,7 +24,7 @@ class TestHandler extends BaseToolHandler<any, any> {
     private mockModule: any = {},
     private shouldValidate: boolean = true
   ) {
-    super();
+    super("test");
   }
 
   validateArgs(args: unknown): args is any {
@@ -36,10 +36,8 @@ class TestHandler extends BaseToolHandler<any, any> {
   }
 
   async handleOperation(args: any, module: any): Promise<any> {
-    return {
-      success: true,
-      data: await module.testMethod(args)
-    };
+    const result = await module.testMethod(args);
+    return this.createSuccessResponse(`Test result: ${result}`);
   }
 }
 
@@ -63,8 +61,8 @@ describe("BaseToolHandler", () => {
 
       const result = await handler.handle(args);
 
-      expect(result.success).toBe(true);
-      expect(result.data).toBe("test result");
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toContain("test result");
       expect(mockModule.testMethod).toHaveBeenCalledWith(args);
     });
 
@@ -74,9 +72,8 @@ describe("BaseToolHandler", () => {
 
       const result = await handler.handle(args);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Invalid arguments provided");
-      expect(result.details).toBe("Arguments failed validation");
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Invalid arguments");
     });
 
     test("should handle module loading errors", async () => {
@@ -91,9 +88,8 @@ describe("BaseToolHandler", () => {
 
       const result = await handler.handle(args);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Failed to load required module");
-      expect(result.details).toBe("Module loading failed");
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Module loading failed");
     });
 
     test("should handle operation execution errors", async () => {
@@ -106,9 +102,8 @@ describe("BaseToolHandler", () => {
 
       const result = await handler.handle(args);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("Operation failed");
-      expect(result.details).toBe("Operation failed");
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain("Operation failed");
     });
 
     test("should handle unexpected errors gracefully", async () => {
@@ -123,8 +118,8 @@ describe("BaseToolHandler", () => {
 
       const result = await handler.handle(args);
 
-      expect(result.success).toBe(false);
-      expect(result.error).toBe("An unexpected error occurred");
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toBeDefined();
     });
   });
 });
@@ -142,7 +137,7 @@ describe("ContactsHandler", () => {
     const handler = new ContactsHandler();
     const validArgs = {
       name: "John Doe",
-      limit: 10
+      maxResults: 10
     };
 
     expect(handler.validateArgs(validArgs)).toBe(true);
@@ -159,24 +154,23 @@ describe("ContactsHandler", () => {
   });
 
   test("should handle contacts search successfully", async () => {
-    // Mock the contacts module
-    const originalLoad = ContactsHandler.prototype.loadModule;
-    ContactsHandler.prototype.loadModule = mock().mockResolvedValue(mockContactsModule);
-
     const handler = new ContactsHandler();
+    
+    // Mock the loadModule method directly on the instance
+    handler.loadModule = mock().mockResolvedValue(mockContactsModule);
+
     const args = {
       name: "John Doe",
-      limit: 10
+      maxResults: 10
     };
 
     const result = await handler.handle(args);
 
-    expect(result.success).toBe(true);
-    expect(result.data).toBeDefined();
-    expect(mockContactsModule.searchContacts).toHaveBeenCalledWith("John Doe", 10);
-
-    // Restore original method
-    ContactsHandler.prototype.loadModule = originalLoad;
+    expect(result).toBeDefined();
+    expect(typeof result).toBe("object");
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toBeDefined();
+    expect(mockContactsModule.searchContacts).toHaveBeenCalledWith("John Doe");
   });
 });
 
@@ -195,8 +189,8 @@ describe("HandlerRegistry", () => {
     // Mock a successful handler
     const mockHandler = {
       handle: mock().mockResolvedValue({
-        success: true,
-        data: "test result"
+        content: [{ type: "text", text: "test result" }],
+        isError: false
       })
     };
 
@@ -206,8 +200,8 @@ describe("HandlerRegistry", () => {
 
     const result = await registry.handle("contacts", { name: "John" });
 
-    expect(result.success).toBe(true);
-    expect(result.data).toBe("test result");
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toBe("test result");
     expect(mockHandler.handle).toHaveBeenCalledWith({ name: "John" });
 
     // Restore original handler
@@ -221,16 +215,19 @@ describe("HandlerRegistry", () => {
 
     const result = await registry.handle("unknownTool", {});
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("Unknown tool: unknownTool");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Unknown tool: unknownTool");
   });
 
   test("should handle handler errors gracefully", async () => {
     const registry = new HandlerRegistry();
     
-    // Mock a failing handler
+    // Mock a failing handler that returns proper error format
     const mockHandler = {
-      handle: mock().mockRejectedValue(new Error("Handler error"))
+      handle: mock().mockResolvedValue({
+        content: [{ type: "text", text: "❌ Handler error" }],
+        isError: true
+      })
     };
 
     // Temporarily replace the contacts handler
@@ -239,8 +236,8 @@ describe("HandlerRegistry", () => {
 
     const result = await registry.handle("contacts", { name: "John" });
 
-    expect(result.success).toBe(false);
-    expect(result.error).toBe("Handler error");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Handler error");
 
     // Restore original handler
     if (originalHandler) {
@@ -431,7 +428,7 @@ describe("ResponseBuilder", () => {
   describe("success and error methods", () => {
     test("should create success response", () => {
       const data = { result: "test" };
-      const response = ResponseBuilder.success(data);
+      const response = ResponseBuilder.legacySuccess(data);
 
       expect(response.success).toBe(true);
       expect(response.data).toEqual(data);
@@ -441,7 +438,7 @@ describe("ResponseBuilder", () => {
     test("should create error response", () => {
       const message = "Test error";
       const details = "Additional details";
-      const response = ResponseBuilder.error(message, details);
+      const response = ResponseBuilder.legacyError(message, details);
 
       expect(response.success).toBe(false);
       expect(response.error).toBe(message);

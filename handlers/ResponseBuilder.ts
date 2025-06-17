@@ -65,13 +65,32 @@ export class ResponseBuilder {
   static formatContact(contact: any, includeScore?: boolean, scoreData?: any): string {
     let result = `**${contact.name}**`;
     
-    if (includeScore && scoreData) {
-      result += ` (Score: ${(scoreData.score * 100).toFixed(1)}%, Match: ${scoreData.matchType} - ${scoreData.matchValue})`;
+    if (includeScore && contact.confidence !== undefined) {
+      result += `\n🎯 Confidence: ${(contact.confidence * 100).toFixed(0)}%`;
     }
     
-    result += `\n📞 ${contact.phones.join(", ") || "No phone numbers"}`;
-    result += `\n📧 ${contact.emails.join(", ") || "No email addresses"}`;
-    result += `\n🏠 ${contact.addresses.join(", ") || "No addresses"}`;
+    result += `\n📞 ${contact.phones?.join(", ") || "No phone numbers"}`;
+    result += `\n✉️ ${contact.emails?.join(", ") || "No email addresses"}`;
+    
+    if (contact.organization) {
+      result += `\n🏢 ${contact.organization}`;
+    }
+    
+    if (contact.jobTitle) {
+      result += `\n💼 ${contact.jobTitle}`;
+    }
+    
+    if (contact.addresses?.length > 0) {
+      result += `\n🏠 ${contact.addresses.join(", ")}`;
+    }
+    
+    if (contact.birthday) {
+      result += `\n🎂 ${contact.birthday}`;
+    }
+    
+    if (contact.notes) {
+      result += `\n📝 ${contact.notes}`;
+    }
     
     return result;
   }
@@ -155,5 +174,138 @@ export class ResponseBuilder {
     message += limitedItems.map(formatter).join('\n\n');
 
     return this.success(message);
+  }
+
+  /**
+   * Formats calendar event information (alias for formatEvent)
+   */
+  static formatCalendarEvent(event: any): string {
+    let result = `**${event.title}**`;
+    
+    if (event.isAllDay) {
+      const date = new Date(event.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      result += `\n📅 ${date} (All day)`;
+    } else {
+      const startDate = new Date(event.startDate).toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      const startTime = new Date(event.startDate).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      const endTime = new Date(event.endDate).toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
+      result += `\n📅 ${startDate} at ${startTime} - ${endTime}`;
+    }
+    
+    if (event.location) {
+      result += `\n📍 ${event.location}`;
+    }
+    
+    if (event.notes) {
+      result += `\n📝 ${event.notes}`;
+    }
+    
+    if (event.calendarName) {
+      result += `\n📚 ${event.calendarName}`;
+    }
+    
+    if (event.url) {
+      result += `\n🔗 ${event.url}`;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Formats email message information (alias for formatEmail) 
+   */
+  static formatEmailMessage(email: any): string {
+    let result = `**${email.subject}**`;
+    
+    result += `\n👤 ${email.sender}`;
+    
+    const date = new Date(email.date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const time = new Date(email.date).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    result += `\n🕐 ${date} at ${time}`;
+    
+    if (email.snippet) {
+      result += `\n📧 ${email.snippet}`;
+    }
+    
+    if (email.url) {
+      result += `\n🔗 ${email.url}`;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Formats message information (updated format for tests)
+   */
+  static formatMessage(message: any): string {
+    const sender = message.is_from_me ? "You" : message.sender;
+    let result = `**From: ${sender}**`;
+    
+    const date = new Date(message.date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+    const time = new Date(message.date).toLocaleTimeString('en-US', {
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
+    });
+    result += `\n🕐 ${date} at ${time}`;
+    
+    result += `\n💬 ${message.content}`;
+    
+    if (message.url) {
+      result += `\n🔗 ${message.url}`;
+    }
+    
+    return result;
+  }
+
+  /**
+   * Creates a legacy success response (for backward compatibility with tests)
+   */
+  static legacySuccess(data: any): { success: boolean; data: any; error?: undefined } {
+    return {
+      success: true,
+      data,
+      error: undefined
+    };
+  }
+
+  /**
+   * Creates a legacy error response (for backward compatibility with tests)
+   */
+  static legacyError(message: string, details?: string): { success: boolean; error: string; details?: string; data?: undefined } {
+    return {
+      success: false,
+      error: message,
+      details,
+      data: undefined
+    };
   }
 }

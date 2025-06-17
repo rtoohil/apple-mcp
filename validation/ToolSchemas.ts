@@ -27,7 +27,8 @@ export const contactsValidator = createValidator({
   },
   legacySupport: {
     field: 'name',
-    mapToOperation: 'search'
+    mapToOperation: 'search',
+    mapToField: 'searchTerm'
   }
 });
 

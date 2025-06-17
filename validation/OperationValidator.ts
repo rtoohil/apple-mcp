@@ -30,6 +30,7 @@ export interface ValidationConfig {
   legacySupport?: {
     field: string;
     mapToOperation: string;
+    mapToField?: string; // Map legacy field to new field name
   };
 }
 
@@ -52,7 +53,7 @@ export class OperationValidator {
 
     // Handle legacy support first
     if (this.config.legacySupport) {
-      const { field, mapToOperation } = this.config.legacySupport;
+      const { field, mapToOperation, mapToField } = this.config.legacySupport;
       if (typedArgs[field] && !typedArgs.operation) {
         // Validate legacy field
         if (!this.validateField(typedArgs[field], { type: 'string', required: true })) {
@@ -60,6 +61,12 @@ export class OperationValidator {
         }
         // Add the mapped operation for further validation
         typedArgs.operation = mapToOperation;
+        
+        // Map legacy field to new field name if specified
+        if (mapToField && mapToField !== field) {
+          typedArgs[mapToField] = typedArgs[field];
+          delete typedArgs[field];
+        }
       }
     }
 
