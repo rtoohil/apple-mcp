@@ -100,10 +100,34 @@ class Logger {
       `${colorStart}${level.toUpperCase()}${colorEnd}`,
       `[${this.component}]`,
       message,
-      context && `- ${JSON.stringify(context)}`
+      context && `- ${this.safeStringify(context)}`
     ].filter(Boolean);
 
     return parts.join(' ');
+  }
+
+  private safeStringify(obj: any): string {
+    try {
+      return JSON.stringify(obj, (key, value) => {
+        // Handle Error objects
+        if (value instanceof Error) {
+          return {
+            name: value.name,
+            message: value.message,
+            stack: value.stack
+          };
+        }
+        
+        return value;
+      });
+    } catch (error) {
+      // Handle circular references and other serialization errors
+      try {
+        return JSON.stringify(obj, Object.getOwnPropertyNames(obj));
+      } catch {
+        return '[Unserializable Object]';
+      }
+    }
   }
 
   /**
