@@ -1,4 +1,7 @@
 import { run } from '@jxa/run';
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('contacts');
 import { runAppleScript } from 'run-applescript';
 import { validateContactName, validatePhoneNumber, validateEmail, escapeForLogging } from './ValidationUtils';
 import { getContactCache } from './ContactCache';
@@ -22,23 +25,23 @@ interface FuzzySearchResult {
 
 async function checkContactsAccess(): Promise<boolean> {
     try {
-        console.error("Checking Contacts access...");
+        logger.info('Checking Contacts access...');
         // Try to get the count of contacts as a simple test
         const result = await runAppleScript(`
 tell application "Contacts"
     count every person
 end tell`);
-        console.error(`Contacts access check successful. Found ${result} contacts.`);
+        logger.success(`Contacts access check successful. Found ${result} contacts.`);
         return true;
     } catch (error) {
-        console.error("Contacts access check failed:", error);
+        logger.error('Contacts access check failed:', { error: error });
         throw new Error("Cannot access Contacts app. Please grant access in System Preferences > Security & Privacy > Privacy > Contacts.");
     }
 }
 
 async function getAllContactsAppleScript(): Promise<ContactsData> {
     try {
-        console.error("Trying AppleScript fallback for getAllContacts...");
+        logger.info('Trying AppleScript fallback for getAllContacts...');
         const script = `
 tell application "Contacts"
     set contactsList to ""
@@ -129,23 +132,23 @@ end replaceText`;
             }
         }
         
-        console.error(`AppleScript parsed ${Object.keys(contacts).length} contacts.`);
+        logger.info(`AppleScript parsed ${Object.keys(contacts).length} contacts.`);
         return contacts;
     } catch (error) {
-        console.error("AppleScript fallback failed:", error);
+        logger.error('AppleScript fallback failed:', { error: error });
         throw error;
     }
 }
 
 async function getAllContacts(): Promise<ContactsData> {
     try {
-        console.error("Starting getAllContacts...");
+        logger.info('Starting getAllContacts...');
         
         // Check cache first
         const cache = getContactCache();
         const cachedData = cache.get('allContacts');
         if (cachedData) {
-            console.error(`Cache hit! Using cached data with ${Object.keys(cachedData).length} contacts.`);
+            logger.info(`Cache hit! Using cached data with ${Object.keys(cachedData).length} contacts.`);
             return cachedData;
         }
         
@@ -156,7 +159,7 @@ async function getAllContacts(): Promise<ContactsData> {
         // Try JXA first, fallback to AppleScript if it fails
         let contactsData: ContactsData = {};
         try {
-            console.error("Running JXA script to get all contacts...");
+            logger.info('Running JXA script to get all contacts...');
             const contacts: ContactsData = await run(() => {
                 const Contacts = Application('Contacts');
                 console.log("Contacts app accessed successfully");
@@ -211,28 +214,28 @@ async function getAllContacts(): Promise<ContactsData> {
                 return contactsMap;
             });
 
-            console.error(`JXA getAllContacts completed. Found ${Object.keys(contacts).length} contacts.`);
+            logger.info(`JXA getAllContacts completed. Found ${Object.keys(contacts).length} contacts.`);
             contactsData = contacts;
             
             // If JXA returns empty results, try AppleScript fallback
             if (Object.keys(contacts).length === 0) {
-                console.error("JXA returned empty results, trying AppleScript fallback...");
+                logger.info('JXA returned empty results, trying AppleScript fallback...');
                 contactsData = await getAllContactsAppleScript();
             }
         } catch (jxaError) {
-            console.error("JXA failed, trying AppleScript fallback:", jxaError);
+            logger.error('JXA failed, trying AppleScript fallback:', { error: jxaError });
             contactsData = await getAllContactsAppleScript();
         }
 
         // Cache the results
         if (Object.keys(contactsData).length > 0) {
             cache.set(contactsData, 'allContacts');
-            console.error(`Cached ${Object.keys(contactsData).length} contacts for future use.`);
+            logger.info(`Cached ${Object.keys(contactsData).length} contacts for future use.`);
         }
         
         return contactsData;
     } catch (error) {
-        console.error("Error in getAllContacts:", error);
+        logger.error('Error in getAllContacts:', { error: error });
         throw new Error(`Error accessing contacts: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
@@ -294,7 +297,7 @@ function calculateFuzzyScore(searchTerm: string, target: string): number {
 async function fuzzySearchContacts(searchTerm: string, maxResults: number = 10): Promise<FuzzySearchResult[]> {
     try {
         const sanitizedTerm = validateContactName(searchTerm);
-        console.error(`Starting fuzzy search for: ${escapeForLogging(sanitizedTerm)}`);
+        logger.info(`Starting fuzzy search for: ${escapeForLogging(sanitizedTerm)}`);
         
         const allContacts = await getAllContacts();
         const results: FuzzySearchResult[] = [];
@@ -351,10 +354,10 @@ async function fuzzySearchContacts(searchTerm: string, maxResults: number = 10):
             .sort((a, b) => b.score - a.score)
             .slice(0, maxResults);
         
-        console.error(`Fuzzy search found ${sortedResults.length} results`);
+        logger.info(`Fuzzy search found ${sortedResults.length} results`);
         return sortedResults;
     } catch (error) {
-        console.error("Error in fuzzy search:", error);
+        logger.error('Error in fuzzy search:', { error: error });
         return [];
     }
 }
@@ -369,7 +372,7 @@ async function searchContacts(searchTerm: string): Promise<ContactInfo[]> {
         const results = await fuzzySearchContacts(searchTerm, 10);
         return results.map(r => r.contact);
     } catch (error) {
-        console.error("Error in searchContacts:", error);
+        logger.error('Error in searchContacts:', { error: error });
         throw new Error(`Error searching contacts: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
@@ -382,7 +385,7 @@ async function searchContacts(searchTerm: string): Promise<ContactInfo[]> {
 async function findContactByEmail(email: string): Promise<ContactInfo[]> {
     try {
         const sanitizedEmail = validateEmail(email);
-        console.error(`Starting email search for: ${escapeForLogging(sanitizedEmail)}`);
+        logger.info(`Starting email search for: ${escapeForLogging(sanitizedEmail)}`);
         
         const allContacts = await getAllContacts();
         const results: ContactInfo[] = [];
@@ -396,10 +399,10 @@ async function findContactByEmail(email: string): Promise<ContactInfo[]> {
             }
         }
         
-        console.error(`Email search found ${results.length} results`);
+        logger.info(`Email search found ${results.length} results`);
         return results;
     } catch (error) {
-        console.error("Error in findContactByEmail:", error);
+        logger.error('Error in findContactByEmail:', { error: error });
         throw new Error(`Error finding contact by email: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
@@ -416,7 +419,7 @@ async function findNumber(name: string) {
         // Return phone numbers from the best match
         return contacts[0].phones;
     } catch (error) {
-        console.error("Error in findNumber:", error);
+        logger.error('Error in findNumber:', { error: error });
         throw new Error(`Error finding contact: ${error instanceof Error ? error.message : String(error)}`);
     }
 }
@@ -462,7 +465,7 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
     try {
         // Validate and sanitize input
         const sanitizedPhoneNumber = validatePhoneNumber(phoneNumber);
-        console.error(`Starting optimized findContactByPhone for: ${escapeForLogging(sanitizedPhoneNumber)}`);
+        logger.info(`Starting optimized findContactByPhone for: ${escapeForLogging(sanitizedPhoneNumber)}`);
         
         if (!await checkContactsAccess()) {
             return null;
@@ -470,20 +473,20 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
 
         // Get normalized phone number formats for comparison
         const searchNumbers = normalizePhoneNumber(sanitizedPhoneNumber);
-        console.error(`Searching for phone numbers: ${searchNumbers.join(', ')}`);
+        logger.info(`Searching for phone numbers: ${searchNumbers.join(', ')}`);
 
         // Try cache first (fast lookup)
-        console.error("Checking cache for phone search...");
+        logger.info('Checking cache for phone search...');
         const cacheResult = await findContactByPhoneCachedSearch(searchNumbers);
         if (cacheResult) {
-            console.error(`Cache hit! Found contact: ${cacheResult}`);
+            logger.info(`Cache hit! Found contact: ${cacheResult}`);
             return cacheResult;
         }
 
         // Cache miss - fallback to direct JXA search (slower but comprehensive)
-        console.error("Cache miss, falling back to direct JXA search...");
+        logger.info('Cache miss, falling back to direct JXA search...');
         try {
-            console.error("Running direct JXA phone search...");
+            logger.info('Running direct JXA phone search...');
             const foundContact: ContactSearchResult | null = await run((searchFormats: string[]) => {
                 const Contacts = Application('Contacts');
                 const people = Contacts.people();
@@ -544,7 +547,7 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
             }, searchNumbers);
 
             if (foundContact && foundContact.name) {
-                console.error(`Direct JXA search found: ${foundContact.name}`);
+                logger.info(`Direct JXA search found: ${foundContact.name}`);
                 
                 // Cache the successful result for future lookups
                 const contactInfo: ContactInfo = {
@@ -558,14 +561,14 @@ async function findContactByPhoneOptimized(phoneNumber: string): Promise<string 
                 return foundContact.name;
             }
         } catch (jxaError) {
-            console.error("Direct JXA phone search failed:", jxaError);
+            logger.error('Direct JXA phone search failed:', { error: jxaError });
         }
 
-        console.error("No contact found via any search method");
+        logger.info('No contact found via any search method');
         return null;
         
     } catch (error) {
-        console.error("Error in findContactByPhoneOptimized:", error);
+        logger.error('Error in findContactByPhoneOptimized:', { error: error });
         return null;
     }
 }
@@ -581,11 +584,11 @@ async function findContactByPhoneCachedSearch(searchNumbers: string[]): Promise<
         const allContacts = cache.get('allContacts');
         
         if (!allContacts) {
-            console.error("No cached contacts available for search");
+            logger.info('No cached contacts available for search');
             return null;
         }
         
-        console.error("Searching cached contacts...");
+        logger.info('Searching cached contacts...');
         
         // Look for a match in cached data
         for (const [name, contactInfo] of Object.entries(allContacts)) {
@@ -599,16 +602,16 @@ async function findContactByPhoneCachedSearch(searchNumbers: string[]): Promise<
                     num === `+1${searchNumber}` ||
                     `+1${num}` === searchNumber
                 )) {
-                    console.error(`Found match in cache: ${name}`);
+                    logger.info(`Found match in cache: ${name}`);
                     return name;
                 }
             }
         }
 
-        console.error("No match found in cached search");
+        logger.info('No match found in cached search');
         return null;
     } catch (error) {
-        console.error("Cached phone search failed:", error);
+        logger.error('Cached phone search failed:', { error: error });
         return null;
     }
 }
@@ -618,14 +621,14 @@ async function findContactByPhone(phoneNumber: string): Promise<string | null> {
         // Use the new optimized version
         return await findContactByPhoneOptimized(phoneNumber);
     } catch (error) {
-        console.error("Error in findContactByPhone:", error);
+        logger.error('Error in findContactByPhone:', { error: error });
         return null;
     }
 }
 
 async function testContactsAccess(): Promise<{ success: boolean; message: string; contactCount?: number }> {
     try {
-        console.error("Testing contacts access...");
+        logger.info('Testing contacts access...');
         
         // Test basic AppleScript access
         const contactCount = await runAppleScript(`
@@ -672,7 +675,7 @@ async function getCacheInfo(): Promise<{ stats: any; config: any }> {
 async function invalidateCache(): Promise<void> {
     const cache = getContactCache();
     cache.invalidate();
-    console.error("Contact cache manually invalidated");
+    logger.info('Contact cache manually invalidated');
 }
 
 /**
@@ -681,7 +684,7 @@ async function invalidateCache(): Promise<void> {
 async function updateCacheConfig(config: any): Promise<void> {
     const cache = getContactCache();
     cache.updateConfig(config);
-    console.error("Cache configuration updated");
+    logger.info('Cache configuration updated');
 }
 
 /**
@@ -703,9 +706,9 @@ async function cacheContactSearchResult(contactInfo: ContactInfo): Promise<void>
         // Save back to cache
         cache.set(existingData, 'allContacts');
         
-        console.error(`📞 Cached contact search result: ${contactInfo.name} with ${contactInfo.phones.length} phones, ${contactInfo.emails.length} emails, ${contactInfo.addresses.length} addresses`);
+        logger.info(`📞 Cached contact search result: ${contactInfo.name} with ${contactInfo.phones.length} phones, ${contactInfo.emails.length} emails, ${contactInfo.addresses.length} addresses`);
     } catch (error) {
-        console.error("Failed to cache contact search result:", error);
+        logger.error('Failed to cache contact search result:', { error: error });
         // Don't throw - caching failure shouldn't break the search
     }
 }

@@ -1,5 +1,8 @@
 /// <reference types="@jxa/global-type" />
 import { run } from "@jxa/run";
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('photos');
 
 // Define types for our photos
 interface PhotoAlbum {
@@ -37,7 +40,7 @@ async function checkPhotosAccess(): Promise<boolean> {
     });
     return result as boolean;
   } catch (error) {
-    console.error(`Cannot access Photos app: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Cannot access Photos app: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }
@@ -68,7 +71,7 @@ async function getAllAlbums(): Promise<PhotoAlbum[]> {
 
     return albums as PhotoAlbum[];
   } catch (error) {
-    console.error(`Error getting albums: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting albums: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -140,7 +143,7 @@ async function getPhotosFromAlbum(albumName: string, limit?: number): Promise<Ph
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error getting photos from album: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting photos from album: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -217,7 +220,7 @@ async function searchPhotosByText(searchText: string, limit?: number): Promise<P
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error searching photos: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error searching photos: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -304,7 +307,7 @@ async function searchPhotosByDateRange(startDate: string, endDate: string, limit
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error searching photos by date range: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error searching photos by date range: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -372,7 +375,7 @@ async function getFavoritePhotos(limit?: number): Promise<Photo[]> {
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error getting favorite photos: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting favorite photos: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -458,7 +461,7 @@ async function getMemories(limit?: number): Promise<{ title: string; date: strin
 
     return memories as { title: string; date: string; photos: Photo[] }[];
   } catch (error) {
-    console.error(`Error getting memories: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting memories: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -544,7 +547,7 @@ async function getRecentPhotos(limit: number = 20): Promise<Photo[]> {
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error getting recent photos: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting recent photos: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -715,7 +718,7 @@ async function getPeople(): Promise<string[]> {
 
     return people as string[];
   } catch (error) {
-    console.error(`Error getting people: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting people: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -792,7 +795,7 @@ async function getPhotosByPerson(personName: string, limit?: number): Promise<Ph
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error getting photos by person: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error getting photos by person: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }
@@ -920,7 +923,7 @@ async function findScreenshots(limit?: number): Promise<Photo[]> {
 
     return photos as Photo[];
   } catch (error) {
-    console.error(`Error finding screenshots: ${error instanceof Error ? error.message : String(error)}`);
+    logger.error(`Error finding screenshots: ${error instanceof Error ? error.message : String(error)}`);
     return [];
   }
 }

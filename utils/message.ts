@@ -1,4 +1,7 @@
 import {runAppleScript} from 'run-applescript';
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('message');
 import { promisify } from 'node:util';
 import { exec } from 'node:child_process';
 import { access } from 'node:fs/promises';
@@ -18,7 +21,7 @@ async function retryOperation<T>(operation: () => Promise<T>, retries = MAX_RETR
         return await operation();
     } catch (error) {
         if (retries > 0) {
-            console.error(`Operation failed, retrying... (${retries} attempts remaining)`);
+            logger.info(`Operation failed, retrying... (${retries} attempts remaining)`);
             await sleep(delay);
             return retryOperation(operation, retries - 1, delay);
         }
@@ -89,7 +92,7 @@ async function checkMessagesDBAccess(): Promise<boolean> {
         
         return true;
     } catch (error) {
-        console.error(`
+        logger.error(`
 Error: Cannot access Messages database.
 To fix this, please grant Full Disk Access to Terminal/iTerm2:
 1. Open System Preferences
@@ -181,7 +184,7 @@ function decodeAttributedBody(hexString: string): { text: string; url?: string }
         
         return { text: text || url || '', url };
     } catch (error) {
-        console.error('Error decoding attributedBody:', error);
+        logger.error('Error decoding attributedBody:', { error: error });
         return { text: '[Message content not readable]' };
     }
 }
@@ -205,7 +208,7 @@ async function getAttachmentPaths(messageId: number): Promise<string[]> {
         const attachments = JSON.parse(stdout) as { filename: string }[];
         return attachments.map(a => a.filename).filter(Boolean);
     } catch (error) {
-        console.error('Error getting attachments:', error);
+        logger.error('Error getting attachments:', { error: error });
         return [];
     }
 }
@@ -220,7 +223,7 @@ async function readMessages(phoneNumber: string, limit = 10): Promise<Message[]>
 
         // Get all possible formats of the phone number
         const phoneFormats = normalizePhoneNumber(phoneNumber);
-        console.error("Trying phone formats:", phoneFormats);
+        logger.info('Trying phone formats:', { phoneFormats });
         
         // Create SQL IN clause with all phone number formats
         const phoneList = phoneFormats.map(p => `'${p.replace(/'/g, "''")}'`).join(',');
@@ -261,7 +264,7 @@ async function readMessages(phoneNumber: string, limit = 10): Promise<Message[]>
         );
         
         if (!stdout.trim()) {
-            console.error("No messages found in database for the given phone number");
+            logger.info('No messages found in database for the given phone number');
             return [];
         }
 
@@ -331,10 +334,9 @@ async function readMessages(phoneNumber: string, limit = 10): Promise<Message[]>
 
         return processedMessages;
     } catch (error) {
-        console.error('Error reading messages:', error);
+        logger.error('Error reading messages:', { error: error });
         if (error instanceof Error) {
-            console.error('Error details:', error.message);
-            console.error('Stack trace:', error.stack);
+            logger.error('Error details and stack trace:', { message: error.message, stack: error.stack });
         }
         return [];
     }
@@ -384,7 +386,7 @@ async function getUnreadMessages(limit = 10): Promise<Message[]> {
         );
         
         if (!stdout.trim()) {
-            console.error("No unread messages found");
+            logger.info('No unread messages found');
             return [];
         }
 
@@ -454,10 +456,9 @@ async function getUnreadMessages(limit = 10): Promise<Message[]> {
 
         return processedMessages;
     } catch (error) {
-        console.error('Error reading unread messages:', error);
+        logger.error('Error reading unread messages:', { error: error });
         if (error instanceof Error) {
-            console.error('Error details:', error.message);
-            console.error('Stack trace:', error.stack);
+            logger.error('Error details and stack trace:', { message: error.message, stack: error.stack });
         }
         return [];
     }
@@ -480,7 +481,7 @@ async function scheduleMessage(phoneNumber: string, message: string, scheduledTi
             await sendMessage(phoneNumber, message);
             scheduledMessages.delete(timeoutId);
         } catch (error) {
-            console.error('Failed to send scheduled message:', error);
+            logger.error('Failed to send scheduled message:', { error: error });
         }
     }, delay);
     

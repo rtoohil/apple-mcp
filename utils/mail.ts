@@ -1,4 +1,7 @@
 import { run } from "@jxa/run";
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('mail');
 import { runAppleScript } from "run-applescript";
 
 async function checkMailAccess(): Promise<boolean> {
@@ -10,13 +13,13 @@ tell application "System Events"
 end tell`);
 
     if (isRunning !== "true") {
-      console.error("Mail app is not running, attempting to launch...");
+      logger.info('Mail app is not running, attempting to launch...');
       try {
         await runAppleScript(`
 tell application "Mail" to activate
 delay 2`);
       } catch (activateError) {
-        console.error("Error activating Mail app:", activateError);
+        logger.error('Error activating Mail app:', { error: activateError });
         throw new Error(
           "Could not activate Mail app. Please start it manually.",
         );
@@ -31,7 +34,7 @@ tell application "Mail"
 end tell`);
       return true;
     } catch (mailboxError) {
-      console.error("Error accessing mailboxes:", mailboxError);
+      logger.error('Error accessing mailboxes:', { error: mailboxError });
 
       // Try an alternative check
       try {
@@ -39,17 +42,17 @@ end tell`);
 tell application "Mail"
     return its version
 end tell`);
-        console.error("Mail version:", mailVersion);
+        logger.error('Mail version:', { error: mailVersion });
         return true;
       } catch (versionError) {
-        console.error("Error getting Mail version:", versionError);
+        logger.error('Error getting Mail version:', { error: versionError });
         throw new Error(
           "Mail app is running but cannot access mailboxes. Please check permissions and configuration.",
         );
       }
     }
   } catch (error) {
-    console.error("Error checking Mail access:", error);
+    logger.error('Error checking Mail access:', { error: error });
     throw new Error(
       `Mail access check failed: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -173,7 +176,7 @@ end tell`;
     }
     return [];
   } catch (error) {
-    console.error("Error in getUnreadMails:", error);
+    logger.error('Error in getUnreadMails:', { error: error });
     throw new Error(
       `Error fetching unread mails: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -289,7 +292,7 @@ end tell`;
     }
     return [];
   } catch (error) {
-    console.error("Error in getInboxMails:", error);
+    logger.error('Error in getInboxMails:', { error: error });
     throw new Error(
       `Error fetching inbox mails: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -463,7 +466,7 @@ end tell`;
     }
     return [];
   } catch (error) {
-    console.error("Error in searchMails:", error);
+    logger.error('Error in searchMails:', { error: error });
     throw new Error(
       `Error searching mails: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -496,7 +499,7 @@ end tell`;
 
     return [];
   } catch (error) {
-    console.error("Error getting mailboxes:", error);
+    logger.error('Error getting mailboxes:', { error: error });
     throw new Error(
       `Error fetching mailboxes: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -538,7 +541,7 @@ end tell`;
 
     return [];
   } catch (error) {
-    console.error("Error getting accounts:", error);
+    logger.error('Error getting accounts:', { error: error });
     throw new Error(
       `Error fetching accounts: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -576,7 +579,7 @@ end tell`;
 
     return [];
   } catch (error) {
-    console.error("Error getting mailboxes for account:", error);
+    logger.error('Error getting mailboxes for account:', { error: error });
     throw new Error(
       `Error fetching mailboxes for account: ${error instanceof Error ? error.message : String(error)}`,
     );
@@ -612,7 +615,7 @@ end tell`;
 
     await runAppleScript(script);
   } catch (error) {
-    console.error("Error sending mail:", error);
+    logger.error('Error sending mail:', { error: error });
     throw new Error(
       `Error sending mail: ${error instanceof Error ? error.message : String(error)}`,
     );

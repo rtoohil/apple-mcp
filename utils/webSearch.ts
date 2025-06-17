@@ -1,3 +1,7 @@
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('webSearch');
+
 interface SearchResult {
   title: string;
   url: string;
@@ -140,7 +144,7 @@ function extractDDGResults(html: string): SearchResult[] {
         });
       }
     } catch (error) {
-      console.error("Error parsing result block:", error);
+      logger.error('Error parsing result block:', { error: error });
       // Continue with next block even if one fails
     }
   }
@@ -185,7 +189,7 @@ async function searchDuckDuckGo(query: string): Promise<SearchResponse> {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("DuckDuckGo search failed:", errorMessage);
+    logger.error('DuckDuckGo search failed:', { error: errorMessage });
     return {
       query,
       error: errorMessage,
@@ -221,7 +225,7 @@ function extractDDGResultsAlternative(html: string): SearchResult[] {
       }
     }
   } catch (error) {
-    console.error("Alternative extraction failed:", error);
+    logger.error('Alternative extraction failed:', { error: error });
   }
   
   return results;
@@ -282,7 +286,7 @@ function extractMainContent(content: string): string {
 
     return textContent;
   } catch (error) {
-    console.error("Error extracting main content:", error);
+    logger.error('Error extracting main content:', { error: error });
     return "Failed to extract content";
   }
 }
@@ -324,7 +328,7 @@ async function fetchPageContent(
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`Error fetching content from ${url}:`, errorMessage);
+    logger.error(`Error fetching content from ${url}:`, { error: errorMessage });
     return {
       url,
       error: errorMessage,
@@ -384,7 +388,7 @@ export async function webSearch(query: string): Promise<ContentResponse> {
     };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Web search failed:", errorMessage);
+    logger.error('Web search failed:', { error: errorMessage });
     return {
       query,
       error: errorMessage,

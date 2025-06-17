@@ -1,4 +1,7 @@
 import { run } from '@jxa/run';
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('maps');
 
 // Type definitions
 interface MapLocation {
@@ -70,7 +73,7 @@ async function checkMapsAccess(): Promise<boolean> {
         
         return result;
     } catch (error) {
-        console.error(`Cannot access Maps app: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Cannot access Maps app: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
@@ -90,7 +93,7 @@ async function searchLocations(query: string, limit: number = 5): Promise<Search
             };
         }
 
-        console.error(`searchLocations - Searching for: "${query}"`);
+        logger.info(`searchLocations - Searching for: "${query}"`);
 
         // First try to use the Maps search function
         const locations = await run((args: { query: string, limit: number }) => {
@@ -203,7 +206,7 @@ async function saveLocation(name: string, address: string): Promise<SaveResult> 
             };
         }
 
-        console.error(`saveLocation - Saving location: "${name}" at address "${address}"`);
+        logger.info(`saveLocation - Saving location: "${name}" at address "${address}"`);
 
         const result = await run((args: { name: string, address: string }) => {
             try {
@@ -297,7 +300,7 @@ async function getDirections(
             };
         }
 
-        console.error(`getDirections - Getting directions from "${fromAddress}" to "${toAddress}"`);
+        logger.info(`getDirections - Getting directions from "${fromAddress}" to "${toAddress}"`);
 
         const result = await run((args: { 
             fromAddress: string, 
@@ -361,7 +364,7 @@ async function dropPin(name: string, address: string): Promise<SaveResult> {
             };
         }
 
-        console.error(`dropPin - Creating pin at: "${address}" with name "${name}"`);
+        logger.info(`dropPin - Creating pin at: "${address}" with name "${name}"`);
 
         const result = await run((args: { name: string, address: string }) => {
             try {
@@ -410,7 +413,7 @@ async function listGuides(): Promise<GuideResult> {
             };
         }
 
-        console.error("listGuides - Getting list of guides from Maps");
+        logger.info('listGuides - Getting list of guides from Maps');
 
         // Try to list guides using AppleScript UI automation
         // Note: Maps doesn't have a direct API for this, so we're using a URL scheme approach
@@ -466,7 +469,7 @@ async function addToGuide(locationAddress: string, guideName: string): Promise<A
             };
         }
 
-        console.error(`addToGuide - Adding location "${locationAddress}" to guide "${guideName}"`);
+        logger.info(`addToGuide - Adding location "${locationAddress}" to guide "${guideName}"`);
 
         // Since Maps doesn't provide a direct API for guide management,
         // we'll use a combination of search and manual instructions
@@ -523,7 +526,7 @@ async function createGuide(guideName: string): Promise<AddToGuideResult> {
             };
         }
 
-        console.error(`createGuide - Creating new guide "${guideName}"`);
+        logger.info(`createGuide - Creating new guide "${guideName}"`);
 
         // Since Maps doesn't provide a direct API for guide creation,
         // we'll guide the user through the process

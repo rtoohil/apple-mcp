@@ -1,4 +1,7 @@
 import { run } from '@jxa/run';
+import { createLogger } from './Logger.js';
+
+const logger = createLogger('calendar');
 
 // Define types for our calendar events
 interface CalendarEvent {
@@ -44,7 +47,7 @@ async function checkCalendarAccess(): Promise<boolean> {
         
         return result;
     } catch (error) {
-        console.error(`Cannot access Calendar app: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Cannot access Calendar app: ${error instanceof Error ? error.message : String(error)}`);
         return false;
     }
 }
@@ -68,7 +71,7 @@ async function searchEvents(
             return [];
         }
 
-        console.error(`searchEvents - Processing calendars for search: "${searchText}"`);
+        logger.info(`searchEvents - Processing calendars for search: "${searchText}"`);
 
         const events = await run((args: { 
             searchText: string, 
@@ -175,12 +178,10 @@ async function searchEvents(
                                 }
                             } catch (e) {
                                 // Skip events we can't process
-                                console.log("searchEvents - Error processing events: ----0----", JSON.stringify(e));
                             }
                         }
                     } catch (e) {
                         // Skip calendars we can't access
-                        console.log("searchEvents - Error processing calendars: ----1----", JSON.stringify(e));
                     }
                 }
                 
@@ -198,13 +199,13 @@ async function searchEvents(
         
         // If no events found, create dummy events
         if (events.length === 0) {
-            console.error("searchEvents - No events found, creating dummy events");
+            logger.info('searchEvents - No events found, creating dummy events');
             return [];
         }
         
         return events;
     } catch (error) {
-        console.error(`Error searching events: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Error searching events: ${error instanceof Error ? error.message : String(error)}`);
         // Fall back to dummy events on error
         return [];
     }
@@ -225,7 +226,7 @@ async function openEvent(eventId: string): Promise<{ success: boolean; message: 
             };
         }
 
-        console.error(`openEvent - Attempting to open event with ID: ${eventId}`);
+        logger.info(`openEvent - Attempting to open event with ID: ${eventId}`);
 
         const result = await run((args: { 
             eventId: string,
@@ -260,7 +261,6 @@ async function openEvent(eventId: string): Promise<{ success: boolean; message: 
                         
                     } catch (e) {
                         // Skip calendars we can't access
-                        console.log("openEvent - Error processing calendars: ----2----", JSON.stringify(e));
                     }
                 }
                 
@@ -301,13 +301,13 @@ async function getEvents(
     toDate?: string
 ): Promise<CalendarEvent[]> {
     try {
-        console.error("getEvents - Starting to fetch calendar events");
+        logger.info('getEvents - Starting to fetch calendar events');
         
         if (!await checkCalendarAccess()) {
-            console.error("getEvents - Failed to access Calendar app");
+            logger.error('getEvents - Failed to access Calendar app');
             return [];
         }
-        console.error("getEvents - Calendar access check passed");
+        logger.info('getEvents - Calendar access check passed');
 
         const events = await run((args: { 
             limit: number, 
@@ -407,12 +407,10 @@ async function getEvents(
                         }
                     } catch (e) {
                         // Skip calendars we can't access
-                        console.log("getEvents - Error processing events: ----0----", JSON.stringify(e));
                     }
                 }
                 return events;
             } catch (e) {
-                console.log("getEvents - Error processing events: ----1----", JSON.stringify(e));
                 return []; // Return empty array on any error
             }
         }, { 
@@ -424,13 +422,13 @@ async function getEvents(
         
         // If no events found, create dummy events
         if (events.length === 0) {
-            console.error("getEvents - No events found, creating dummy events");
+            logger.info('getEvents - No events found, creating dummy events');
             return [];
         }
         
         return events;
     } catch (error) {
-        console.error(`Error getting events: ${error instanceof Error ? error.message : String(error)}`);
+        logger.error(`Error getting events: ${error instanceof Error ? error.message : String(error)}`);
         return [];
     }
 }
@@ -463,7 +461,7 @@ async function createEvent(
             };
         }
 
-        console.error(`createEvent - Attempting to create event: "${title}"`);
+        logger.info(`createEvent - Attempting to create event: "${title}"`);
 
         const result = await run((args: {
             title: string,

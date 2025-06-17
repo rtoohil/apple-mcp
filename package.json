@@ -23,11 +23,19 @@
     "apple-mcp": "./index.ts"
   },
   "scripts": {
-    "dev": "bun run index.ts"
+    "dev": "bun run index.ts",
+    "test": "bun run tests/run-all-tests.ts",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "test:unit": "bun test tests/unit/",
+    "test:integration": "bun test tests/integration/",
+    "test:validation": "bun test tests/unit/validation-working.test.ts",
+    "test:logging": "bun test tests/unit/logging.test.ts"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^22.13.4"
+    "@types/node": "^22.13.4",
+    "bun-types": "latest"
   },
   "peerDependencies": {
     "typescript": "^5.0.0"
